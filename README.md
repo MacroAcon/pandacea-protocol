@@ -31,7 +31,7 @@ The Pandacea Protocol MVP demonstrates the core functionality of a decentralized
 
 ## Visual Architecture
 
-![Pandacea Protocol Logical Architecture](https://storage.googleapis.com/pandacea-public-assets/logical-architecture-diagram.png)
+![Pandacea Protocol Logical Architecture](logical-architecture-diagram.png)
 
 *The Pandacea Protocol enables direct peer-to-peer data transactions while maintaining privacy and ensuring fair pricing through smart contracts.*
 
