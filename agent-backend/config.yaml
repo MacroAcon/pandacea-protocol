@@ -1,0 +1,8 @@
+# Pandacea Agent Backend Configuration
+server:
+  port: 8080
+  min_price: "0.001"  # HTTP server port
+
+p2p:
+  listen_port: 0  # 0 means let libp2p choose a random port
+  key_file_path: "~/.pandacea/agent.key"  # Path to store the agent's private key 

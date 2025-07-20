@@ -1,0 +1,8 @@
+[
+  {
+    "productId": "did:pandacea:earner:123/abc-456",
+    "name": "Novel Package 3D Scans - Warehouse A",
+    "dataType": "RoboticSensorData",
+    "keywords": ["robotics", "3d-scan", "lidar"]
+  }
+] 

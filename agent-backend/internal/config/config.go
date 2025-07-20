@@ -1,0 +1,92 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Config represents the application configuration
+type Config struct {
+	Server ServerConfig `yaml:"server"`
+	P2P    P2PConfig    `yaml:"p2p"`
+}
+
+// ServerConfig contains HTTP server configuration
+type ServerConfig struct {
+	Port     int    `yaml:"port"`
+	MinPrice string `yaml:"min_price"`
+}
+
+// P2PConfig contains P2P node configuration
+type P2PConfig struct {
+	ListenPort  int    `yaml:"listen_port"`
+	KeyFilePath string `yaml:"key_file_path"`
+}
+
+// Load loads configuration from file and environment variables
+func Load(configPath string) (*Config, error) {
+	// Default configuration
+	config := &Config{
+		Server: ServerConfig{
+			Port: 8080, // Default HTTP port
+		},
+		P2P: P2PConfig{
+			ListenPort: 0, // Let libp2p choose a random port
+		},
+	}
+
+	// Load from config file if it exists
+	if configPath != "" {
+		if err := loadFromFile(config, configPath); err != nil {
+			return nil, fmt.Errorf("failed to load config file: %w", err)
+		}
+	}
+
+	// Override with environment variables
+	loadFromEnv(config)
+
+	return config, nil
+}
+
+// loadFromFile loads configuration from a YAML file
+func loadFromFile(config *Config, configPath string) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+
+	if err := yaml.Unmarshal(data, config); err != nil {
+		return fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	return nil
+}
+
+// loadFromEnv loads configuration from environment variables
+func loadFromEnv(config *Config) {
+	// Server configuration
+	if portStr := os.Getenv("HTTP_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			config.Server.Port = port
+		}
+	}
+
+	// P2P configuration
+	if portStr := os.Getenv("P2P_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			config.P2P.ListenPort = port
+		}
+	}
+
+	if keyFilePath := os.Getenv("P2P_KEY_FILE"); keyFilePath != "" {
+		config.P2P.KeyFilePath = keyFilePath
+	}
+}
+
+// GetServerAddr returns the server address string
+func (c *Config) GetServerAddr() string {
+	return fmt.Sprintf(":%d", c.Server.Port)
+}

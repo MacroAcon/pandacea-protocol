@@ -1,0 +1,74 @@
+version: '3.8'
+
+# Pandacea Protocol Local Development Environment
+# This compose file sets up a complete local development environment with all
+# necessary services for testing and development of the Pandacea Protocol.
+
+services:
+  # Agent Backend Service - Core P2P node and HTTP API server
+  # Provides data product discovery, policy evaluation, and P2P networking
+  agent-backend:
+    build:
+      context: ./agent-backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - HTTP_PORT=8080
+      - P2P_LISTEN_PORT=0
+    volumes:
+      - ./agent-backend:/app
+      - go-modules:/go/pkg/mod
+    networks:
+      - pandacea-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Anvil Blockchain Node - Local Ethereum development chain
+  # Provides a local blockchain for smart contract testing and development
+  # Includes pre-funded accounts and instant mining for rapid iteration
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    command: anvil --host 0.0.0.0 --port 8545
+    ports:
+      - "8545:8545"
+    volumes:
+      - anvil-data:/root/.anvil
+    networks:
+      - pandacea-network
+    restart: unless-stopped
+
+  # IPFS Node - Distributed file system for P2P content addressing
+  # Enables decentralized storage and content discovery for the protocol
+  # Provides DHT (Distributed Hash Table) functionality for peer discovery
+  ipfs:
+    image: ipfs/kubo:latest
+    ports:
+      - "4001:4001"
+      - "5001:5001"
+      - "9090:8080"
+    volumes:
+      - ipfs-data:/data/ipfs
+    networks:
+      - pandacea-network
+    restart: unless-stopped
+
+volumes:
+  # Go modules cache - Persists Go module dependencies between container restarts
+  # Improves build performance and reduces network usage
+  go-modules:
+  # Anvil blockchain data - Persists blockchain state between sessions
+  # Allows for consistent testing environment and contract deployment history
+  anvil-data:
+  # IPFS data - Persists IPFS node data and content addressing information
+  # Maintains distributed content and peer discovery state
+  ipfs-data:
+
+networks:
+  pandacea-network:
+    driver: bridge 
