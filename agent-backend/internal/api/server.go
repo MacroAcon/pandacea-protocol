@@ -2,18 +2,23 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"regexp"
+	"strings"
 	"time"
 
+	"pandacea/agent-backend/internal/p2p"
 	"pandacea/agent-backend/internal/policy"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // Server represents the HTTP API server
@@ -22,6 +27,7 @@ type Server struct {
 	policy   *policy.Engine
 	logger   *slog.Logger
 	products []DataProduct
+	p2pNode  *p2p.Node
 }
 
 // DataProduct represents a data product as per API specification
@@ -50,8 +56,49 @@ type LeaseResponse struct {
 	LeaseProposalID string `json:"leaseProposalId"`
 }
 
+// ErrorResponse represents a standardized error response as per API specification
+type ErrorResponse struct {
+	Error struct {
+		Code      string `json:"code"`
+		Message   string `json:"message"`
+		RequestID string `json:"requestId"`
+	} `json:"error"`
+}
+
+// Error codes for standardized error responses
+const (
+	ErrorCodeValidationError = "VALIDATION_ERROR"
+	ErrorCodePolicyRejection = "POLICY_REJECTION"
+	ErrorCodeUnauthorized    = "UNAUTHORIZED"
+	ErrorCodeForbidden       = "FORBIDDEN"
+	ErrorCodeInternalError   = "INTERNAL_ERROR"
+	ErrorCodeInvalidRequest  = "INVALID_REQUEST"
+)
+
+// sendErrorResponse sends a standardized error response
+func (server *Server) sendErrorResponse(w http.ResponseWriter, r *http.Request, statusCode int, errorCode, message string) {
+	requestID := middleware.GetReqID(r.Context())
+	if requestID == "" {
+		requestID = "unknown"
+	}
+
+	errorResp := ErrorResponse{}
+	errorResp.Error.Code = errorCode
+	errorResp.Error.Message = message
+	errorResp.Error.RequestID = requestID
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+
+	if err := json.NewEncoder(w).Encode(errorResp); err != nil {
+		server.logger.Error("failed to encode error response", "error", err)
+		// Fallback to simple error if JSON encoding fails
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
 // NewServer creates a new API server
-func NewServer(policyEngine *policy.Engine, logger *slog.Logger) *Server {
+func NewServer(policyEngine *policy.Engine, logger *slog.Logger, p2pNode *p2p.Node) *Server {
 	router := chi.NewRouter()
 
 	// Add middleware
@@ -79,6 +126,7 @@ func NewServer(policyEngine *policy.Engine, logger *slog.Logger) *Server {
 		policy:   policyEngine,
 		logger:   logger,
 		products: []DataProduct{},
+		p2pNode:  p2pNode,
 	}
 
 	// Load products from JSON file
@@ -104,7 +152,7 @@ func (server *Server) loadProducts() {
 	var err error
 
 	for _, path := range paths {
-		data, err = ioutil.ReadFile(path)
+		data, err = os.ReadFile(path)
 		if err == nil {
 			server.logger.Info("found products.json at", "path", path)
 			break
@@ -129,14 +177,104 @@ func (server *Server) loadProducts() {
 
 // setupRoutes configures the API routes
 func (server *Server) setupRoutes() {
-	// API v1 routes
+	// API v1 routes with signature verification
 	server.router.Route("/api/v1", func(r chi.Router) {
+		// Add signature verification middleware to all API routes
+		r.Use(server.verifySignatureMiddleware)
 		r.Get("/products", server.handleGetProducts)
 		r.Post("/leases", server.handleCreateLease)
 	})
 
-	// Health check
+	// Health check (no signature required)
 	server.router.Get("/health", server.handleHealth)
+}
+
+// verifySignatureMiddleware verifies the cryptographic signature of incoming requests
+func (server *Server) verifySignatureMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract signature from header
+		signature := r.Header.Get("X-Pandacea-Signature")
+		if signature == "" {
+			server.logger.Error("missing signature header", "path", r.URL.Path)
+			server.sendErrorResponse(w, r, http.StatusUnauthorized, ErrorCodeUnauthorized, "Missing signature header")
+			return
+		}
+
+		// Extract peer ID from header
+		peerIDStr := r.Header.Get("X-Pandacea-Peer-ID")
+		if peerIDStr == "" {
+			server.logger.Error("missing peer ID header", "path", r.URL.Path)
+			server.sendErrorResponse(w, r, http.StatusUnauthorized, ErrorCodeUnauthorized, "Missing peer ID header")
+			return
+		}
+
+		// Parse peer ID
+		peerID, err := peer.Decode(peerIDStr)
+		if err != nil {
+			server.logger.Error("invalid peer ID format", "peer_id", peerIDStr, "error", err)
+			server.sendErrorResponse(w, r, http.StatusUnauthorized, ErrorCodeUnauthorized, "Invalid peer ID format")
+			return
+		}
+
+		// Get the public key from the peer ID
+		// Note: In a real implementation, you would need to store/retrieve public keys
+		// associated with peer IDs. For now, we'll use a simplified approach.
+		// In production, you'd want to maintain a key registry or use DHT for key discovery.
+		pubKey, err := peerID.ExtractPublicKey()
+		if err != nil {
+			server.logger.Error("failed to extract public key from peer ID", "peer_id", peerIDStr, "error", err)
+			server.sendErrorResponse(w, r, http.StatusForbidden, ErrorCodeForbidden, "Unable to verify signature")
+			return
+		}
+
+		// Read request body for signature verification
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			server.logger.Error("failed to read request body", "error", err)
+			server.sendErrorResponse(w, r, http.StatusInternalServerError, ErrorCodeInternalError, "Failed to read request body")
+			return
+		}
+
+		// Restore the body for the next handler
+		r.Body = io.NopCloser(strings.NewReader(string(body)))
+
+		// Decode the signature
+		signatureBytes, err := base64.StdEncoding.DecodeString(signature)
+		if err != nil {
+			server.logger.Error("invalid signature format", "error", err)
+			server.sendErrorResponse(w, r, http.StatusForbidden, ErrorCodeForbidden, "Invalid signature format")
+			return
+		}
+
+		// Verify the signature
+		// For GET requests, we'll sign an empty string or a canonical representation
+		// For POST requests, we'll sign the request body
+		var dataToVerify []byte
+		if r.Method == "GET" {
+			// For GET requests, sign a canonical representation of the request
+			dataToVerify = []byte(fmt.Sprintf("%s %s", r.Method, r.URL.Path))
+		} else {
+			// For POST requests, sign the request body
+			dataToVerify = body
+		}
+
+		// Verify the signature using the public key
+		verified, err := pubKey.Verify(dataToVerify, signatureBytes)
+		if err != nil {
+			server.logger.Error("signature verification failed", "error", err, "peer_id", peerIDStr)
+			server.sendErrorResponse(w, r, http.StatusForbidden, ErrorCodeForbidden, "Signature verification failed")
+			return
+		}
+
+		if !verified {
+			server.logger.Error("signature verification failed", "peer_id", peerIDStr)
+			server.sendErrorResponse(w, r, http.StatusForbidden, ErrorCodeForbidden, "Invalid signature")
+			return
+		}
+
+		server.logger.Info("signature verified successfully", "peer_id", peerIDStr, "path", r.URL.Path)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // handleGetProducts handles GET /api/v1/products
@@ -154,7 +292,7 @@ func (server *Server) handleGetProducts(w http.ResponseWriter, r *http.Request) 
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		server.logger.Error("failed to encode products response", "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		server.sendErrorResponse(w, r, http.StatusInternalServerError, ErrorCodeInternalError, "Failed to encode response")
 		return
 	}
 
@@ -169,14 +307,14 @@ func (server *Server) handleCreateLease(w http.ResponseWriter, r *http.Request) 
 	var req LeaseRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		server.logger.Error("failed to decode lease request", "error", err)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		server.sendErrorResponse(w, r, http.StatusBadRequest, ErrorCodeInvalidRequest, "Invalid request body")
 		return
 	}
 
 	// Perform strict input validation
 	if err := server.validateLeaseRequest(&req); err != nil {
 		server.logger.Error("lease request validation failed", "error", err)
-		http.Error(w, fmt.Sprintf("Validation error: %s", err.Error()), http.StatusBadRequest)
+		server.sendErrorResponse(w, r, http.StatusBadRequest, ErrorCodeValidationError, err.Error())
 		return
 	}
 
@@ -190,7 +328,7 @@ func (server *Server) handleCreateLease(w http.ResponseWriter, r *http.Request) 
 	evaluation := server.policy.EvaluateRequest(r.Context(), policyReq)
 	if !evaluation.Allowed {
 		server.logger.Error("lease request rejected by policy", "reason", evaluation.Reason)
-		http.Error(w, fmt.Sprintf("Request rejected: %s", evaluation.Reason), http.StatusForbidden)
+		server.sendErrorResponse(w, r, http.StatusForbidden, ErrorCodePolicyRejection, evaluation.Reason)
 		return
 	}
 
@@ -204,7 +342,7 @@ func (server *Server) handleCreateLease(w http.ResponseWriter, r *http.Request) 
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		server.logger.Error("failed to encode lease response", "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		server.sendErrorResponse(w, r, http.StatusInternalServerError, ErrorCodeInternalError, "Failed to encode response")
 		return
 	}
 

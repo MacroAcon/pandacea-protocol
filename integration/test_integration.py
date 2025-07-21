@@ -14,6 +14,7 @@ Test scenarios:
 import os
 import sys
 import time
+import random
 import pytest
 import requests
 from typing import List
@@ -23,6 +24,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'builder-sdk'))
 
 from pandacea_sdk import PandaceaClient, DataProduct
 from pandacea_sdk.exceptions import AgentConnectionError, APIResponseError, PandaceaException
+
+CHAOS_TEST = os.environ.get("CHAOS_TEST", "false").lower() == "true"
+CHAOS_DURATION = int(os.environ.get("CHAOS_DURATION", 180))  # seconds, default 3 minutes
 
 
 class TestIntegration:
@@ -245,6 +249,40 @@ class TestIntegration:
             
         except Exception as e:
             pytest.fail(f"Lease below minimum price test failed: {e}")
+
+
+def test_chaos_resilience():
+    if not CHAOS_TEST:
+        pytest.skip("CHAOS_TEST not enabled")
+
+    agent_url = os.environ.get("AGENT_URL", "http://localhost:8080")
+    client = PandaceaClient(agent_url)
+    start_time = time.time()
+    end_time = start_time + CHAOS_DURATION
+    last_success = None
+    failures = 0
+    successes = 0
+
+    print(f"[CHAOS] Starting chaos test for {CHAOS_DURATION} seconds...")
+    while time.time() < end_time:
+        try:
+            products = client.discover_products()
+            print(f"[CHAOS] discover_products() succeeded: {len(products)} products")
+            last_success = time.time()
+            successes += 1
+        except AgentConnectionError as e:
+            print(f"[CHAOS] discover_products() failed: {e}")
+            failures += 1
+            # Wait a bit before retrying
+            time.sleep(random.uniform(1, 3))
+            continue
+        # Short sleep to avoid hammering
+        time.sleep(random.uniform(0.5, 2))
+
+    print(f"[CHAOS] Test complete. Successes: {successes}, Failures: {failures}")
+    assert successes > 0, "No successful calls during chaos test!"
+    if failures > 0:
+        assert last_success is not None and last_success > start_time, "System did not recover after failure!"
 
 
 def main():

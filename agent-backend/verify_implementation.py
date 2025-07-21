@@ -145,8 +145,8 @@ def main():
         (r'type Engine struct', 'Engine struct definition'),
         (r'func NewEngine', 'NewEngine function'),
         (r'func.*EvaluateRequest', 'EvaluateRequest function'),
-        (r'return.*true', 'Placeholder returning true'),
-        (r'TODO.*Guiding Principles', 'TODO comments'),
+        (r'Allowed: true', 'Policy approval logic'),
+        (r'TODO.*Future policy', 'TODO comments'),
     ]
     
     policy_ok = check_go_file_content("internal/policy/policy.go", policy_patterns)

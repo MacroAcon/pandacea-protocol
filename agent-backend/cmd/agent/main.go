@@ -64,7 +64,7 @@ func main() {
 	}()
 
 	// Initialize API server
-	apiServer := api.NewServer(policyEngine, logger)
+	apiServer := api.NewServer(policyEngine, logger, p2pNode)
 
 	// Start API server in a goroutine
 	go func() {

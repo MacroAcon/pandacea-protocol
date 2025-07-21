@@ -10,6 +10,9 @@ packages = [{include = "pandacea_sdk"}]
 python = "^3.8"
 requests = "^2.31.0"
 pydantic = "^2.5.0"
+cryptography = "^41.0.0"
+py-multibase = "^1.0.3"
+py-multihash = "^2.0.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"

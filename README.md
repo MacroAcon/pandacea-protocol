@@ -96,11 +96,11 @@ All detailed technical, strategic, and planning documents are organized in the `
 
 ### Key Documents
 
-- **[Technical Whitepaper](docs/Pandacea%20Technical%20Whitepaper%20(v3.1).pdf)** - Comprehensive technical overview and protocol design
-- **[System Design Document (SDD)](docs/Pandacea%20Protocol%20-%20System%20Design%20Document%20(SDD)%20(v1.1).pdf)** - Detailed system architecture and implementation specifications
-- **[Comprehensive Roadmap](docs/ROADMAP.md)** - Complete development roadmap and technical plan for future sprints
-- **[Engineering Handbook](docs/Pandacea%20Protocol%20-%20Engineering%20Handbook%20(v1).pdf)** - Development standards and best practices
-- **[API Specification](docs/Pandacea%20Protocol%20-%20API%20Specification%20(v1.1).pdf)** - Complete API documentation and interface specifications
+- **[Technical Whitepaper](docs/Pandacea%20Technical%20Whitepaper%20(v4.0).md)** - Comprehensive technical overview and protocol design
+- **[System Design Document (SDD)](docs/Pandacea%20Protocol%20-%20System%20Design%20Document%20(SDD)%20(v1.2).md)** - Detailed system architecture and implementation specifications
+- **[Comprehensive Roadmap](docs/Pandacea%20Protocol_%20Comprehensive%20Roadmap%20(v3.0).md)** - Complete development roadmap and technical plan for future sprints
+- **[Engineering Handbook](docs/Pandacea%20Protocol%20-%20System%20Design%20Document%20(SDD)%20(v1.2).md)** - Development standards and best practices
+- **[API Specification](docs/Pandacea%20Protocol%20-%20System%20Design%20Document%20(SDD)%20(v1.2).md)** - Complete API documentation and interface specifications
 
 ## Technology Stack
 
@@ -119,7 +119,7 @@ All detailed technical, strategic, and planning documents are organized in the `
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [Pandacea Protocol - Engineering Handbook (v1).pdf](docs/Pandacea%20Protocol%20-%20Engineering%20Handbook%20(v1).pdf) for detailed technical specifications.
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [Pandacea Protocol - System Design Document (SDD) (v1.2).md](docs/Pandacea%20Protocol%20-%20System%20Design%20Document%20(SDD)%20(v1.2).md) for detailed technical specifications.
 
 ## License
 

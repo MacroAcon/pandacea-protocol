@@ -88,10 +88,3 @@ func (e *Engine) EvaluateRequest(ctx context.Context, req *Request) *EvaluationR
 
 	return result
 }
-
-// TODO: Future policy evaluation features to implement:
-// - Reputation system integration
-// - Data product availability checks
-// - Rate limiting and abuse prevention
-// - Compliance with regulatory requirements
-// - Economic sustainability checks

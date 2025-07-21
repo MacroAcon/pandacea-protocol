@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"pandacea/agent-backend/internal/p2p"
 	"pandacea/agent-backend/internal/policy"
 
 	"log/slog"
@@ -22,8 +23,11 @@ func TestServer_handleGetProducts(t *testing.T) {
 	policyEngine, err := policy.NewEngine(logger, "0.001") // Use the same min_price as config.yaml
 	assert.NoError(t, err)                                 // Add this assertion to handle the error return
 
+	// Create mock P2P node
+	mockP2PNode := &p2p.Node{}
+
 	// Create server
-	server := NewServer(policyEngine, logger)
+	server := NewServer(policyEngine, logger, mockP2PNode)
 
 	// Create request
 	req := httptest.NewRequest("GET", "/api/v1/products", nil)
@@ -58,8 +62,11 @@ func TestServer_handleCreateLease_ValidRequest(t *testing.T) {
 	policyEngine, err := policy.NewEngine(logger, "0.001") // Use the same min_price as config.yaml
 	assert.NoError(t, err)                                 // Add this assertion to handle the error return
 
+	// Create mock P2P node
+	mockP2PNode := &p2p.Node{}
+
 	// Create server
-	server := NewServer(policyEngine, logger)
+	server := NewServer(policyEngine, logger, mockP2PNode)
 
 	// Create valid request
 	leaseReq := LeaseRequest{
@@ -94,13 +101,14 @@ func TestServer_handleCreateLease_InvalidProductID(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 
 	// Create policy engine
-	var policyEngine *policy.Engine
-	var err error
-	policyEngine, err = policy.NewEngine(logger, "0.001") // Use the same min_price as config.yaml
-	assert.NoError(t, err)                                // Add this assertion to handle the error return
+	policyEngine, err := policy.NewEngine(logger, "0.001") // Use the same min_price as config.yaml
+	assert.NoError(t, err)                                 // Add this assertion to handle the error return
+
+	// Create mock P2P node
+	mockP2PNode := &p2p.Node{}
 
 	// Create server
-	server := NewServer(policyEngine, logger)
+	server := NewServer(policyEngine, logger, mockP2PNode)
 
 	// Create invalid request
 	leaseReq := LeaseRequest{
@@ -127,13 +135,14 @@ func TestServer_handleCreateLease_InvalidMaxPrice(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 
 	// Create policy engine
-	var policyEngine *policy.Engine
-	var err error
-	policyEngine, err = policy.NewEngine(logger, "0.001") // Use the same min_price as config.yaml
-	assert.NoError(t, err)                                // Add this assertion to handle the error return
+	policyEngine, err := policy.NewEngine(logger, "0.001") // Use the same min_price as config.yaml
+	assert.NoError(t, err)                                 // Add this assertion to handle the error return
+
+	// Create mock P2P node
+	mockP2PNode := &p2p.Node{}
 
 	// Create server
-	server := NewServer(policyEngine, logger)
+	server := NewServer(policyEngine, logger, mockP2PNode)
 
 	// Create invalid request
 	leaseReq := LeaseRequest{
@@ -163,8 +172,11 @@ func TestServer_handleCreateLease_InvalidDuration(t *testing.T) {
 	policyEngine, err := policy.NewEngine(logger, "0.001")
 	assert.NoError(t, err)
 
+	// Create mock P2P node
+	mockP2PNode := &p2p.Node{}
+
 	// Create server
-	server := NewServer(policyEngine, logger)
+	server := NewServer(policyEngine, logger, mockP2PNode)
 
 	// Create invalid request
 	leaseReq := LeaseRequest{
@@ -194,8 +206,11 @@ func TestServer_handleCreateLease_MissingFields(t *testing.T) {
 	policyEngine, err := policy.NewEngine(logger, "0.001")
 	assert.NoError(t, err)
 
+	// Create mock P2P node
+	mockP2PNode := &p2p.Node{}
+
 	// Create server
-	server := NewServer(policyEngine, logger)
+	server := NewServer(policyEngine, logger, mockP2PNode)
 
 	// Create invalid request with missing fields
 	leaseReq := LeaseRequest{
@@ -224,8 +239,11 @@ func TestServer_handleHealth(t *testing.T) {
 	policyEngine, err := policy.NewEngine(logger, "0.001")
 	assert.NoError(t, err)
 
+	// Create mock P2P node
+	mockP2PNode := &p2p.Node{}
+
 	// Create server
-	server := NewServer(policyEngine, logger)
+	server := NewServer(policyEngine, logger, mockP2PNode)
 
 	// Create request
 	req := httptest.NewRequest("GET", "/health", nil)
@@ -255,8 +273,11 @@ func TestServer_validateLeaseRequest(t *testing.T) {
 	policyEngine, err := policy.NewEngine(logger, "0.001")
 	assert.NoError(t, err)
 
+	// Create mock P2P node
+	mockP2PNode := &p2p.Node{}
+
 	// Create server
-	server := NewServer(policyEngine, logger)
+	server := NewServer(policyEngine, logger, mockP2PNode)
 
 	tests := []struct {
 		name    string

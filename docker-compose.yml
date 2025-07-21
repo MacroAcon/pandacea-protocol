@@ -58,6 +58,19 @@ services:
       - pandacea-network
     restart: unless-stopped
 
+  chaos-monkey:
+    image: alpine:latest
+    container_name: chaos-monkey
+    depends_on:
+      - agent-backend
+    volumes:
+      - ./integration:/integration
+    entrypoint: ["/bin/sh", "/integration/chaos_test.sh"]
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    restart: unless-stopped
+    # This service intentionally disrupts agent-backend for chaos testing
+
 volumes:
   # Go modules cache - Persists Go module dependencies between container restarts
   # Improves build performance and reduces network usage

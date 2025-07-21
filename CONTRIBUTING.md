@@ -38,7 +38,7 @@ We welcome contributions from the community! Here's how you can get started:
 
 ## Development Standards
 
-For comprehensive development standards, architecture guidelines, and technical specifications, please refer to the **[Pandacea Protocol - Engineering Handbook (v1).pdf](docs/Pandacea%20Protocol%20-%20Engineering%20Handbook%20(v1).pdf)**.
+For comprehensive development standards, architecture guidelines, and technical specifications, please refer to the **[Pandacea Protocol - System Design Document (SDD) (v1.2).md](docs/Pandacea%20Protocol%20-%20System%20Design%20Document%20(SDD)%20(v1.2).md)**.
 
 ## Getting Help
 
