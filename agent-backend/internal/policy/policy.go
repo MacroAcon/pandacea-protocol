@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/shopspring/decimal"
+	"pandacea/agent-backend/internal/config"
 )
 
 // Request represents a lease request to be evaluated
@@ -22,20 +23,32 @@ type EvaluationResult struct {
 
 // Engine represents the policy evaluation engine
 type Engine struct {
-	logger   *slog.Logger
-	minPrice decimal.Decimal
+	logger                 *slog.Logger
+	minPrice               decimal.Decimal
+	royaltyPercentage      float64
+	saboteurCooldown       int
+	reputationWeight       float64
+	reputationDecayRate    float64
+	collusionSpendFraction float64
+	collusionBonusDivisor  int
 }
 
 // NewEngine creates a new policy engine
-func NewEngine(logger *slog.Logger, minPriceStr string) (*Engine, error) {
-	minPrice, err := decimal.NewFromString(minPriceStr)
+func NewEngine(logger *slog.Logger, cfg config.ServerConfig) (*Engine, error) {
+	minPrice, err := decimal.NewFromString(cfg.MinPrice)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Engine{
-		logger:   logger,
-		minPrice: minPrice,
+		logger:                 logger,
+		minPrice:               minPrice,
+		royaltyPercentage:      cfg.RoyaltyPercentage,
+		saboteurCooldown:       cfg.SaboteurCooldown,
+		reputationWeight:       cfg.ReputationWeight,
+		reputationDecayRate:    cfg.ReputationDecayRate,
+		collusionSpendFraction: cfg.CollusionSpendFraction,
+		collusionBonusDivisor:  cfg.CollusionBonusDivisor,
 	}, nil
 }
 

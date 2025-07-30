@@ -2,6 +2,25 @@
 server:
   port: 8080
   min_price: "0.001"  # HTTP server port
+  
+  # Economic parameters based on simulation findings
+  # Percentage of sale price allocated to the royalty pool
+  royalty_percentage: 0.20  # Default: 0.30
+  
+  # Cooldown period in blocks after a saboteur triggers a circuit breaker
+  saboteur_cooldown: 20  # Default: 10
+  
+  # Weight of reputation in the royalty distribution formula
+  reputation_weight: 0.5  # Default: 1.0
+  
+  # Slow decay rate to prevent unbounded reputation growth
+  reputation_decay_rate: 0.0005  # Default: 0.0
+  
+  # Increased cost for reputation farming
+  collusion_spend_fraction: 0.005  # Default: 0.001
+  
+  # Reduced efficiency of converting PGT to reputation
+  collusion_bonus_divisor: 200  # Default: 100
 
 p2p:
   listen_port: 0  # 0 means let libp2p choose a random port

@@ -45,7 +45,7 @@ func main() {
 	defer cancel()
 
 	// Initialize policy engine
-	policyEngine, err := policy.NewEngine(logger, cfg.Server.MinPrice)
+	policyEngine, err := policy.NewEngine(logger, cfg.Server) // Pass the whole ServerConfig
 	if err != nil {
 		logger.Error("failed to initialize policy engine", "error", err)
 		os.Exit(1)

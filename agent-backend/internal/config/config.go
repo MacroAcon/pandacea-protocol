@@ -18,6 +18,14 @@ type Config struct {
 type ServerConfig struct {
 	Port     int    `yaml:"port"`
 	MinPrice string `yaml:"min_price"`
+    
+    // Economic parameters based on simulation findings
+    RoyaltyPercentage      float64 `yaml:"royalty_percentage"`
+    SaboteurCooldown       int     `yaml:"saboteur_cooldown"`
+    ReputationWeight       float64 `yaml:"reputation_weight"`
+    ReputationDecayRate    float64 `yaml:"reputation_decay_rate"`
+    CollusionSpendFraction float64 `yaml:"collusion_spend_fraction"`
+    CollusionBonusDivisor  int     `yaml:"collusion_bonus_divisor"`
 }
 
 // P2PConfig contains P2P node configuration
@@ -32,6 +40,13 @@ func Load(configPath string) (*Config, error) {
 	config := &Config{
 		Server: ServerConfig{
 			Port: 8080, // Default HTTP port
+			// Default economic parameters based on simulation findings
+			RoyaltyPercentage:      0.20,
+			SaboteurCooldown:       20,
+			ReputationWeight:       0.5,
+			ReputationDecayRate:    0.0005,
+			CollusionSpendFraction: 0.005,
+			CollusionBonusDivisor:  200,
 		},
 		P2P: P2PConfig{
 			ListenPort: 0, // Let libp2p choose a random port

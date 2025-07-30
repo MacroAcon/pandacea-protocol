@@ -15,7 +15,8 @@ import (
 
 func FuzzHandleCreateLease(f *testing.F) {
 	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
-	policyEngine, _ := policy.NewEngine(logger, "0.001")
+	testConfig := createTestServerConfig()
+	policyEngine, _ := policy.NewEngine(logger, testConfig)
 	mockP2PNode := &p2p.Node{}
 	server := NewServer(policyEngine, logger, mockP2PNode)
 
