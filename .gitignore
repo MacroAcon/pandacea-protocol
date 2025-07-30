@@ -46,6 +46,10 @@ secrets.json
 /bin/
 test_agent
 
+# Agent binaries (specific to this project)
+agent-backend/agent
+agent-backend/agent.exe
+
 # Dependency directories (if you vendor)
 vendor/
 
