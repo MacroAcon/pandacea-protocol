@@ -7,11 +7,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"log/slog"
 	"pandacea/agent-backend/internal/config"
 	"pandacea/agent-backend/internal/p2p"
 	"pandacea/agent-backend/internal/policy"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // createTestServerConfig creates a ServerConfig for testing
