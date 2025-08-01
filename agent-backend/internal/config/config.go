@@ -10,8 +10,9 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	Server ServerConfig `yaml:"server"`
-	P2P    P2PConfig    `yaml:"p2p"`
+	Server    ServerConfig    `yaml:"server"`
+	P2P       P2PConfig       `yaml:"p2p"`
+	Blockchain BlockchainConfig `yaml:"blockchain"`
 }
 
 // ServerConfig contains HTTP server configuration
@@ -34,6 +35,12 @@ type P2PConfig struct {
 	KeyFilePath string `yaml:"key_file_path"`
 }
 
+// BlockchainConfig contains blockchain configuration
+type BlockchainConfig struct {
+	RPCURL         string `yaml:"rpc_url"`
+	ContractAddress string `yaml:"contract_address"`
+}
+
 // Load loads configuration from file and environment variables
 func Load(configPath string) (*Config, error) {
 	// Default configuration
@@ -50,6 +57,10 @@ func Load(configPath string) (*Config, error) {
 		},
 		P2P: P2PConfig{
 			ListenPort: 0, // Let libp2p choose a random port
+		},
+		Blockchain: BlockchainConfig{
+			RPCURL:         "http://127.0.0.1:8545", // Default Anvil RPC URL
+			ContractAddress: "",                      // Must be set via environment variable
 		},
 	}
 
@@ -98,6 +109,15 @@ func loadFromEnv(config *Config) {
 
 	if keyFilePath := os.Getenv("P2P_KEY_FILE"); keyFilePath != "" {
 		config.P2P.KeyFilePath = keyFilePath
+	}
+
+	// Blockchain configuration
+	if rpcURL := os.Getenv("RPC_URL"); rpcURL != "" {
+		config.Blockchain.RPCURL = rpcURL
+	}
+
+	if contractAddress := os.Getenv("CONTRACT_ADDRESS"); contractAddress != "" {
+		config.Blockchain.ContractAddress = contractAddress
 	}
 }
 

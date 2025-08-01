@@ -15,8 +15,9 @@ from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.backends import default_backend
 import multibase
 import multihash
+from web3 import Web3
 
-from .exceptions import AgentConnectionError, APIResponseError
+from .exceptions import AgentConnectionError, APIResponseError, PandaceaException
 from .models import DataProduct
 
 
@@ -53,6 +54,48 @@ class PandaceaClient:
             'Accept': 'application/json',
             'Content-Type': 'application/json',
         })
+
+        # START ADDITIONS: Blockchain Integration
+        self.rpc_url = os.getenv("RPC_URL", "http://127.0.0.1:8545")
+        self.contract_address = os.getenv("CONTRACT_ADDRESS")
+        self.spender_private_key = os.getenv("SPENDER_PRIVATE_KEY")
+        
+        # Initialize Web3 connection (but don't fail if not connected)
+        try:
+            self.w3 = Web3(Web3.HTTPProvider(self.rpc_url))
+            try:
+                if not self.w3.is_connected():
+                    logging.warning(f"Failed to connect to blockchain node at {self.rpc_url}. On-chain functions will fail.")
+                    self.w3 = None
+            except Exception as e:
+                logging.warning(f"Failed to check Web3 connection: {e}. On-chain functions will fail.")
+                self.w3 = None
+        except Exception as e:
+            logging.warning(f"Failed to initialize Web3 connection: {e}. On-chain functions will fail.")
+            self.w3 = None
+
+        if not self.contract_address:
+            logging.warning("CONTRACT_ADDRESS environment variable not set. On-chain functions will fail.")
+            self.contract = None
+        elif not self.w3:
+            logging.warning("Web3 not connected. On-chain functions will fail.")
+            self.contract = None
+        else:
+            try:
+                # Assuming the ABI file is in a known relative path
+                # NOTE: In a real SDK, this might be packaged differently
+                abi_path = os.path.join(os.path.dirname(__file__), '../../../contracts/LeaseAgreement.abi.json')
+                with open(abi_path, 'r') as f:
+                    abi = json.load(f)
+                
+                self.contract = self.w3.eth.contract(address=self.contract_address, abi=abi)
+            except FileNotFoundError:
+                logging.warning("LeaseAgreement.abi.json not found. Please run the binding generation script.")
+                self.contract = None
+            except Exception as e:
+                logging.warning(f"Failed to load contract: {e}")
+                self.contract = None
+        # END ADDITIONS
     
     def _load_private_key(self, key_path: str):
         """
@@ -332,6 +375,57 @@ class PandaceaClient:
                 f"Request failed: {e}",
                 original_error=e
             )
+
+    # START ADDITION: New method for on-chain lease creation
+    def execute_lease_on_chain(self, earner: str, data_product_id: bytes, max_price: int, payment_in_wei: int) -> str:
+        """
+        Builds, signs, and sends a transaction to the createLease function.
+
+        Args:
+            earner: The blockchain address of the data earner.
+            data_product_id: The 32-byte ID of the data product.
+            max_price: The maximum price the spender is willing to pay, in wei.
+            payment_in_wei: The amount to send with the transaction, in wei.
+
+        Returns:
+            The transaction hash as a hex string.
+        """
+        if not self.w3:
+            raise PandaceaException("Web3 is not connected. Check RPC_URL and ensure blockchain node is running.")
+        if not self.contract:
+            raise PandaceaException("Contract is not initialized. Check CONTRACT_ADDRESS.")
+        if not self.spender_private_key:
+            raise PandaceaException("SPENDER_PRIVATE_KEY environment variable not set.")
+
+        spender_account = self.w3.eth.account.from_key(self.spender_private_key)
+        
+        # Build the transaction
+        tx_data = self.contract.functions.createLease(
+            Web3.to_checksum_address(earner),
+            data_product_id,
+            max_price
+        ).build_transaction({
+            'from': spender_account.address,
+            'value': payment_in_wei,
+            'nonce': self.w3.eth.get_transaction_count(spender_account.address),
+            'gas': 2000000, # This can be estimated more accurately
+            'gasPrice': self.w3.eth.gas_price
+        })
+
+        # Sign the transaction
+        signed_tx = self.w3.eth.account.sign_transaction(tx_data, self.spender_private_key)
+
+        # Send the transaction
+        tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+
+        # Wait for the transaction receipt (optional, but good for testing)
+        receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+        
+        if receipt['status'] == 0:
+            raise APIResponseError(f"Transaction failed. Receipt: {receipt}")
+
+        return tx_hash.hex()
+    # END ADDITION
     
     def close(self):
         """

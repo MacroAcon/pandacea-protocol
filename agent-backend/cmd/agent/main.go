@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -11,8 +12,12 @@ import (
 
 	"pandacea/agent-backend/internal/api"
 	"pandacea/agent-backend/internal/config"
+	"pandacea/agent-backend/internal/contracts"
 	"pandacea/agent-backend/internal/p2p"
 	"pandacea/agent-backend/internal/policy"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 func main() {
@@ -74,6 +79,18 @@ func main() {
 		}
 	}()
 
+	// Start blockchain event listener if blockchain configuration is provided
+	if cfg.Blockchain.RPCURL != "" && cfg.Blockchain.ContractAddress != "" {
+		go func() {
+			if err := startEventListener(ctx, cfg, apiServer, logger); err != nil {
+				logger.Error("failed to start blockchain event listener", "error", err)
+				cancel() // Signal shutdown
+			}
+		}()
+	} else {
+		logger.Warn("blockchain configuration not provided, skipping event listener")
+	}
+
 	// Log startup information
 	logger.Info("agent backend started successfully",
 		"peer_id", p2pNode.GetPeerID(),
@@ -106,4 +123,83 @@ func main() {
 	}
 
 	logger.Info("agent backend shutdown complete")
+}
+
+// startEventListener starts listening for blockchain events
+func startEventListener(ctx context.Context, cfg *config.Config, apiServer *api.Server, logger *slog.Logger) error {
+	logger.Info("connecting to blockchain", "rpc_url", cfg.Blockchain.RPCURL)
+
+	// Connect to the Ethereum client
+	client, err := ethclient.Dial(cfg.Blockchain.RPCURL)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	// Create contract instance
+	contractAddress := common.HexToAddress(cfg.Blockchain.ContractAddress)
+	contract, err := contracts.NewLeaseAgreement(contractAddress, client)
+	if err != nil {
+		return err
+	}
+
+	logger.Info("blockchain connection established",
+		"contract_address", cfg.Blockchain.ContractAddress,
+		"rpc_url", cfg.Blockchain.RPCURL,
+	)
+
+	// Subscribe to LeaseCreated events
+	logs := make(chan *contracts.LeaseAgreementLeaseCreated)
+	sub, err := contract.WatchLeaseCreated(nil, logs, nil, nil, nil)
+	if err != nil {
+		return err
+	}
+	defer sub.Unsubscribe()
+
+	logger.Info("subscribed to LeaseCreated events")
+
+	// Process events
+	for {
+		select {
+		case err := <-sub.Err():
+			logger.Error("subscription error", "error", err)
+			return err
+		case log := <-logs:
+			handleLeaseCreatedEvent(log, apiServer, logger)
+		case <-ctx.Done():
+			logger.Info("shutting down event listener")
+			return nil
+		}
+	}
+}
+
+// handleLeaseCreatedEvent processes a LeaseCreated event
+func handleLeaseCreatedEvent(event *contracts.LeaseAgreementLeaseCreated, apiServer *api.Server, logger *slog.Logger) {
+	logger.Info("received LeaseCreated event",
+		"lease_id", event.LeaseId,
+		"spender", event.Spender.Hex(),
+		"earner", event.Earner.Hex(),
+		"price", event.Price.String(),
+	)
+
+	// Convert price to string
+	priceStr := event.Price.String()
+
+	// Convert lease ID to uint64 for storage
+	// Note: This is a simplified approach. In production, you might want to store the full bytes32
+	leaseID := uint64(0) // We'll use 0 for now since we don't have a direct mapping
+
+	// For now, we'll use a simple mapping from lease ID to proposal ID
+	// In a real implementation, you might want to maintain a mapping table
+	leaseProposalID := fmt.Sprintf("lease_prop_%x", event.LeaseId)
+
+	// Update the lease status in the API server
+	apiServer.UpdateLeaseStatus(
+		leaseProposalID,
+		"approved",
+		&leaseID,
+		event.Spender.Hex(),
+		event.Earner.Hex(),
+		&priceStr,
+	)
 }

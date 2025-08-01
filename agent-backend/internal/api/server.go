@@ -11,6 +11,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"pandacea/agent-backend/internal/p2p"
@@ -21,13 +22,26 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
+// LeaseProposalState represents the state of a lease proposal
+type LeaseProposalState struct {
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	LeaseID     *uint64   `json:"leaseId,omitempty"`
+	SpenderAddr string    `json:"spenderAddr,omitempty"`
+	EarnerAddr  string    `json:"earnerAddr,omitempty"`
+	Price       *string   `json:"price,omitempty"`
+}
+
 // Server represents the HTTP API server
 type Server struct {
-	router   *chi.Mux
-	policy   *policy.Engine
-	logger   *slog.Logger
-	products []DataProduct
-	p2pNode  *p2p.Node
+	router       *chi.Mux
+	policy       *policy.Engine
+	logger       *slog.Logger
+	products     []DataProduct
+	p2pNode      *p2p.Node
+	pendingLeases map[string]*LeaseProposalState
+	leasesMutex   sync.RWMutex
 }
 
 // DataProduct represents a data product as per API specification
@@ -122,11 +136,12 @@ func NewServer(policyEngine *policy.Engine, logger *slog.Logger, p2pNode *p2p.No
 	})
 
 	server := &Server{
-		router:   router,
-		policy:   policyEngine,
-		logger:   logger,
-		products: []DataProduct{},
-		p2pNode:  p2pNode,
+		router:        router,
+		policy:        policyEngine,
+		logger:        logger,
+		products:      []DataProduct{},
+		p2pNode:       p2pNode,
+		pendingLeases: make(map[string]*LeaseProposalState),
 	}
 
 	// Load products from JSON file
@@ -183,6 +198,7 @@ func (server *Server) setupRoutes() {
 		r.Use(server.verifySignatureMiddleware)
 		r.Get("/products", server.handleGetProducts)
 		r.Post("/leases", server.handleCreateLease)
+		r.Get("/leases/{leaseProposalId}", server.handleGetLeaseStatus)
 	})
 
 	// Health check (no signature required)
@@ -332,9 +348,15 @@ func (server *Server) handleCreateLease(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Return success response with hardcoded lease proposal ID
+	// Generate a lease proposal ID (in a real implementation, this would be more sophisticated)
+	leaseProposalID := fmt.Sprintf("lease_prop_%d", time.Now().UnixNano())
+
+	// Create initial lease state
+	server.UpdateLeaseStatus(leaseProposalID, "pending", nil, "", "", nil)
+
+	// Return success response
 	response := LeaseResponse{
-		LeaseProposalID: "lease_prop_123456789",
+		LeaseProposalID: leaseProposalID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -388,6 +410,71 @@ func (server *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+}
+
+// handleGetLeaseStatus handles requests to get the status of a lease proposal
+func (server *Server) handleGetLeaseStatus(w http.ResponseWriter, r *http.Request) {
+	leaseProposalID := chi.URLParam(r, "leaseProposalId")
+	if leaseProposalID == "" {
+		server.sendErrorResponse(w, r, http.StatusBadRequest, ErrorCodeInvalidRequest, "Missing lease proposal ID")
+		return
+	}
+
+	server.leasesMutex.RLock()
+	leaseState, exists := server.pendingLeases[leaseProposalID]
+	server.leasesMutex.RUnlock()
+
+	if !exists {
+		server.sendErrorResponse(w, r, http.StatusNotFound, ErrorCodeInvalidRequest, "Lease proposal not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(leaseState)
+}
+
+// UpdateLeaseStatus updates the status of a lease proposal
+func (server *Server) UpdateLeaseStatus(leaseProposalID string, status string, leaseID *uint64, spenderAddr, earnerAddr string, price *string) {
+	server.leasesMutex.Lock()
+	defer server.leasesMutex.Unlock()
+
+	now := time.Now()
+	
+	if existingState, exists := server.pendingLeases[leaseProposalID]; exists {
+		// Update existing state
+		existingState.Status = status
+		existingState.UpdatedAt = now
+		if leaseID != nil {
+			existingState.LeaseID = leaseID
+		}
+		if spenderAddr != "" {
+			existingState.SpenderAddr = spenderAddr
+		}
+		if earnerAddr != "" {
+			existingState.EarnerAddr = earnerAddr
+		}
+		if price != nil {
+			existingState.Price = price
+		}
+	} else {
+		// Create new state
+		server.pendingLeases[leaseProposalID] = &LeaseProposalState{
+			Status:      status,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+			LeaseID:     leaseID,
+			SpenderAddr: spenderAddr,
+			EarnerAddr:  earnerAddr,
+			Price:       price,
+		}
+	}
+
+	server.logger.Info("lease status updated",
+		"lease_proposal_id", leaseProposalID,
+		"status", status,
+		"lease_id", leaseID,
+	)
 }
 
 // Start starts the HTTP server

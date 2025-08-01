@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"pandacea/agent-backend/internal/p2p"
 	"pandacea/agent-backend/internal/policy"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -363,4 +365,146 @@ func TestServer_validateLeaseRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServer_handleGetLeaseStatus(t *testing.T) {
+	// Create test logger
+	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+
+	// Create policy engine with test config
+	testConfig := createTestServerConfig()
+	policyEngine, err := policy.NewEngine(logger, testConfig)
+	assert.NoError(t, err)
+
+	// Create mock P2P node
+	mockP2PNode := &p2p.Node{}
+
+	// Create server
+	server := NewServer(policyEngine, logger, mockP2PNode)
+
+	// Test case 1: Lease proposal exists
+	t.Run("lease proposal exists", func(t *testing.T) {
+		// Create a test lease proposal
+		leaseProposalID := "test_lease_prop_123"
+		server.UpdateLeaseStatus(leaseProposalID, "pending", nil, "", "", nil)
+
+		// Create request
+		req := httptest.NewRequest("GET", "/api/v1/leases/"+leaseProposalID, nil)
+		w := httptest.NewRecorder()
+
+		// Set up chi context with URL parameter
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("leaseProposalId", leaseProposalID)
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+		// Call handler
+		server.handleGetLeaseStatus(w, req)
+
+		// Assert response
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+
+		// Parse response
+		var response LeaseProposalState
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+
+		// Assert response
+		assert.Equal(t, "pending", response.Status)
+	})
+
+	// Test case 2: Lease proposal does not exist
+	t.Run("lease proposal not found", func(t *testing.T) {
+		// Create request for non-existent lease proposal
+		req := httptest.NewRequest("GET", "/api/v1/leases/non_existent_lease", nil)
+		w := httptest.NewRecorder()
+
+		// Set up chi context with URL parameter
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("leaseProposalId", "non_existent_lease")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+		// Call handler
+		server.handleGetLeaseStatus(w, req)
+
+		// Assert response
+		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
+
+	// Test case 3: Missing lease proposal ID
+	t.Run("missing lease proposal ID", func(t *testing.T) {
+		// Create request without lease proposal ID
+		req := httptest.NewRequest("GET", "/api/v1/leases/", nil)
+		w := httptest.NewRecorder()
+
+		// Set up chi context without URL parameter
+		rctx := chi.NewRouteContext()
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+		// Call handler
+		server.handleGetLeaseStatus(w, req)
+
+		// Assert response
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+func TestServer_UpdateLeaseStatus(t *testing.T) {
+	// Create test logger
+	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+
+	// Create policy engine with test config
+	testConfig := createTestServerConfig()
+	policyEngine, err := policy.NewEngine(logger, testConfig)
+	assert.NoError(t, err)
+
+	// Create mock P2P node
+	mockP2PNode := &p2p.Node{}
+
+	// Create server
+	server := NewServer(policyEngine, logger, mockP2PNode)
+
+	// Test case 1: Create new lease status
+	t.Run("create new lease status", func(t *testing.T) {
+		leaseProposalID := "test_lease_prop_new"
+		leaseID := uint64(123)
+		spenderAddr := "0x1234567890123456789012345678901234567890"
+		earnerAddr := "0x0987654321098765432109876543210987654321"
+		price := "1000000000000000000"
+
+		server.UpdateLeaseStatus(leaseProposalID, "approved", &leaseID, spenderAddr, earnerAddr, &price)
+
+		// Verify the lease status was created
+		server.leasesMutex.RLock()
+		leaseState, exists := server.pendingLeases[leaseProposalID]
+		server.leasesMutex.RUnlock()
+
+		assert.True(t, exists)
+		assert.Equal(t, "approved", leaseState.Status)
+		assert.Equal(t, &leaseID, leaseState.LeaseID)
+		assert.Equal(t, spenderAddr, leaseState.SpenderAddr)
+		assert.Equal(t, earnerAddr, leaseState.EarnerAddr)
+		assert.Equal(t, &price, leaseState.Price)
+	})
+
+	// Test case 2: Update existing lease status
+	t.Run("update existing lease status", func(t *testing.T) {
+		leaseProposalID := "test_lease_prop_update"
+		initialStatus := "pending"
+		updatedStatus := "approved"
+
+		// Create initial status
+		server.UpdateLeaseStatus(leaseProposalID, initialStatus, nil, "", "", nil)
+
+		// Update the status
+		server.UpdateLeaseStatus(leaseProposalID, updatedStatus, nil, "", "", nil)
+
+		// Verify the lease status was updated
+		server.leasesMutex.RLock()
+		leaseState, exists := server.pendingLeases[leaseProposalID]
+		server.leasesMutex.RUnlock()
+
+		assert.True(t, exists)
+		assert.Equal(t, updatedStatus, leaseState.Status)
+	})
 }
