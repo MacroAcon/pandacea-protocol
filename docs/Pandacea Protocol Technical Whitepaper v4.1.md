@@ -1,14 +1,14 @@
 # **Pandacea Protocol Technical Whitepaper**
 
-**Version: 4.0**
+**Version: 4.1**
 
-**Date: July 20, 2025**
+**Date: August 1, 2025**
 
 ### **Abstract**
 
 The Pandacea Protocol is a decentralized infrastructure layer designed to facilitate a fair, secure, and transparent market for real-world, user-generated data. It addresses the systemic failures of the current data paradigm by establishing a new framework for "Informational Labor" built on verifiable consent and distributed value. This paper details the protocol's architecture, including its peer-to-peer networking layer, its "trust-by-proof" privacy model enabled by OpenMined's PySyft, its sophisticated agent-based economic model, and its phased roadmap to full community governance.
 
-This version (v4.0) makes significant updates to the protocol's interoperability strategy, formally adopting industry standards for agent communication. The protocol will now expose its core functionalities through a **Model Context Protocol (MCP) interface**, ensuring seamless integration with the rapidly growing ecosystem of AI agents and LLM-powered applications. This architectural enhancement is complemented by a forward-looking plan to implement a dedicated **Agent-to-Agent (A2A) protocol** to facilitate complex, multi-agent negotiations and collaborative tasks. By embracing these open standards, Pandacea is positioned to become a foundational, community-governed public utility providing the trusted data layer for the emerging Agent-First Economy.
+This version (v4.1) incorporates the findings from a large-scale agent-based simulation, resulting in a more hardened and resilient economic model. It introduces new parameters and refines existing ones—such as a **reputation decay rate**, increased **collusion costs**, and longer **saboteur cooldowns**—to mitigate identified exploits like reputation farming and data poisoning. It also adds detail to the governance model, proposing safeguards such as **stake-weighted requirements** and **enhanced communication protocols** for the Community Security Council (CSC) to counter hostile token accumulation and reduce schism risk. These updates ensure the protocol is better positioned to maintain long-term stability and fairness as it scales.
 
 ### **1\. Introduction**
 
@@ -64,9 +64,7 @@ The protocol provides a trustless framework for "Data Enrichers" to create deriv
 
 ### **4\. Economic Model: A Self-Regulating Data Economy**
 
-The Pandacea marketplace is facilitated by sophisticated agents and governed by a set of transparent, DAO-controlled economic mechanisms designed to foster a healthy market.
-
-*(Note: The following subsections are restored from v3.1)*
+The Pandacea marketplace is facilitated by sophisticated agents and governed by a set of transparent, DAO-controlled economic mechanisms designed to foster a healthy and stable market.
 
 #### **4.0. System Interactions: An Overview**
 
@@ -100,10 +98,11 @@ The protocol uses a multi-phase approach to price discovery to solve the "cold s
 
 #### **4.2. Market Stability Mechanisms**
 
-To prevent a "race to the bottom" in data pricing and quality, the protocol implements two synergistic mechanisms:
+To prevent a "race to the bottom" in data pricing and quality, and to defend against manipulation, the protocol implements several synergistic mechanisms:
 
-* **Dynamic Minimum Pricing (DMP):** A protocol-enforced floor price for all data leases, calculated by a smart contract based on data type, source reputation, and recent market activity (Time-Weighted Average Price). This provides a defensive baseline of compensation for all Earners.  
-* **Reputation-Based Royalties (RBR):** The protocol's 30% royalty pool is distributed to Earners based on a weighted contribution score, which is a product of their transaction volume and their on-chain reputation score. This creates a powerful meritocratic incentive, rewarding Earners who consistently provide high-quality data with a larger share of the protocol's revenue.
+* **Dynamic Minimum Pricing (DMP):** A protocol-enforced floor price for all data leases, calculated by a smart contract based on data type, source reputation, and recent market activity (Time-Weighted Average Price). This provides a defensive baseline of compensation for all Earners. Simulation has shown the DMP to be highly effective at dampening volatility, though its update frequency may need to be dynamically adjusted during market shocks to prevent lagging behind fair value.  
+* **Reputation-Based Royalties (RBR):** The protocol's **20% royalty pool** is distributed to Earners based on a weighted contribution score. This score is a product of their transaction volume and their on-chain reputation, with reputation's weight capped at 50% of the formula. This creates a powerful meritocratic incentive, rewarding Earners who consistently provide high-quality data.  
+* **Reputation Decay:** To prevent reputation scores from growing without bound and to discourage passive holding of high-reputation status, a slow decay rate (0.05% per 10,000 blocks) is applied. This encourages continuous, high-quality participation to maintain a high reputation.
 
 #### **4.3. Adversarial AI Defense**
 
@@ -115,14 +114,15 @@ To address the low-liquidity "cold start" period, the protocol will employ speci
 
 ### **5\. Progressive Decentralization & Governance**
 
-Pandacea is designed to transition from a founder-led project into a fully autonomous, community-governed public utility. This process includes a phased adoption of agent communication standards to ensure robust and decentralized interaction.
+Pandacea is designed to transition from a founder-led project into a fully autonomous, community-governed public utility.
 
 #### **5.1. Governance Model & Legal Framework**
 
-* **DAO Governance:** The protocol is ultimately governed by holders of the Pandacea Governance Token (PGT).  
-* **Community Security Council (CSC):** A 7-member council (3 Foundation, 4 Community-elected) acts as a temporary safeguard with a 5-of-7 multi-sig. Its powers are strictly limited by a formal charter to executing emergency actions (e.g., pausing contracts) in response to critical, imminent threats, subject to final ratification by a DAO vote.  
+* **DAO Governance:** The protocol is ultimately governed by holders of the Pandacea Governance Token (PGT). To combat voter apathy and ensure robust decision-making, governance participation will be incentivized.  
+* **Community Security Council (CSC):** A 7-member council (3 Foundation, 4 Community-elected) acts as a temporary safeguard with a 5-of-7 multi-sig. Its powers are strictly limited. To mitigate the risk of community schism from controversial vetoes, a **CSC Veto requires a public, on-chain explanation** and may trigger a binding community referendum.  
 * **Legal "Safe Harbor":** A comprehensive Terms of Service (ToS) legally defines the protocol as autonomous software, limits the Foundation's liability, and establishes the rights and obligations of all participants.  
-* **Dispute Resolution:** Commercial disputes are resolved by the Pandacea Arbitration Court (PAC), a community-run service modeled on Kleros that uses cryptoeconomic incentives to ensure fair arbitration.
+* **Dispute Resolution:** Commercial disputes are resolved by the Pandacea Arbitration Court (PAC), a community-run service modeled on Kleros that uses cryptoeconomic incentives to ensure fair arbitration.  
+* **Hostile Takeover Resistance**: To slow down the rate of hostile token accumulation, the protocol will implement **stake-weighted safeguards**. Large PGT transfers or market buys may require a time-lock or be subject to higher transaction fees, making it more costly for a single entity to rapidly acquire a controlling stake.
 
 #### **5.2. PGT Tokenomics & Distribution**
 
