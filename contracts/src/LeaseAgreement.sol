@@ -19,13 +19,16 @@ interface ILeaseAgreement {
     event LeaseFinalized(bytes32 indexed leaseId, address indexed earner, uint256 reputationReward);
     event DisputeRaised(bytes32 indexed leaseId, address indexed spender, address indexed earner, string reason, uint256 stakeAmount);
     event DisputeResolved(bytes32 indexed leaseId, bool isDisputeValid, uint256 stakeAmount);
+    event DisputeStakeRateUpdated(uint256 oldRate, uint256 newRate);
 
     function createLease(address earner, bytes32 dataProductId, uint256 maxPrice) external payable;
     function approveLease(bytes32 leaseId) external;
     function executeLease(bytes32 leaseId) external;
     function finalizeLease(bytes32 leaseId) external;
-    function raiseDispute(bytes32 leaseId, string calldata reason, uint256 stakeAmount) external;
+    function raiseDispute(bytes32 leaseId, string calldata reason) external;
     function resolveDispute(bytes32 leaseId, bool isDisputeValid) external;
+    function setDisputeStakeRate(uint256 newRate) external;
+    function getRequiredStake(bytes32 leaseId) external view returns (uint256);
 }
 
 /**
@@ -40,6 +43,9 @@ contract LeaseAgreement is ILeaseAgreement, ReentrancyGuard, Ownable {
     
     // Dispute window - time after execution before lease can be finalized
     uint256 public constant DISPUTE_WINDOW = 7 days;
+    
+    // Dispute stake rate - percentage of lease value required as stake (e.g., 10 = 10%)
+    uint256 public disputeStakeRate;
     
     // Contract references
     Reputation public reputationContract;
@@ -82,6 +88,7 @@ contract LeaseAgreement is ILeaseAgreement, ReentrancyGuard, Ownable {
         reputationContract = Reputation(_reputationContract);
         pgtToken = PGT(_pgtToken);
         daoTreasury = _daoTreasury;
+        disputeStakeRate = 10; // Initialize to 10% stake rate
     }
     
     /**
@@ -227,12 +234,22 @@ contract LeaseAgreement is ILeaseAgreement, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @dev Raises a stake-based dispute for a lease and integrates with the reputation system.
+     * @dev Calculates the required stake amount for a given lease based on the dispute stake rate.
+     * @param leaseId The unique identifier of the lease
+     * @return The required stake amount in PGT tokens
+     */
+    function getRequiredStake(bytes32 leaseId) external view override returns (uint256) {
+        require(leaseExists[leaseId], "LeaseAgreement: Lease does not exist");
+        Lease storage lease = leases[leaseId];
+        return (lease.price * disputeStakeRate) / 100;
+    }
+    
+    /**
+     * @dev Raises a stake-based dispute for a lease with dynamic stake calculation.
      * @param leaseId The unique identifier of the lease to dispute
      * @param reason The reason for the dispute
-     * @param stakeAmount The amount of PGT tokens to stake for the dispute
      */
-    function raiseDispute(bytes32 leaseId, string calldata reason, uint256 stakeAmount) external override nonReentrant {
+    function raiseDispute(bytes32 leaseId, string calldata reason) external override nonReentrant {
         require(leaseExists[leaseId], "LeaseAgreement: Lease does not exist");
         require(
             msg.sender == leases[leaseId].spender || msg.sender == leases[leaseId].earner,
@@ -241,23 +258,27 @@ contract LeaseAgreement is ILeaseAgreement, ReentrancyGuard, Ownable {
         require(!leases[leaseId].isDisputed, "LeaseAgreement: Dispute already raised");
         require(!leases[leaseId].isFinalized, "LeaseAgreement: Cannot dispute finalized lease");
         require(bytes(reason).length > 0, "LeaseAgreement: Dispute reason cannot be empty");
-        require(stakeAmount > 0, "LeaseAgreement: Stake amount must be greater than 0");
         
         Lease storage lease = leases[leaseId];
+        
+        // Calculate required stake based on lease value and dispute stake rate
+        uint256 requiredStake = (lease.price * disputeStakeRate) / 100;
+        require(requiredStake > 0, "LeaseAgreement: Calculated stake amount must be greater than 0");
+        
         lease.isDisputed = true;
-        lease.stakeAmount = stakeAmount;
+        lease.stakeAmount = requiredStake;
         
         // If spender is raising dispute against earner, handle staking and reputation
         if (msg.sender == lease.spender) {
             // Verify spender has approved this contract to spend their PGT tokens
             require(
-                pgtToken.allowance(msg.sender, address(this)) >= stakeAmount,
+                pgtToken.allowance(msg.sender, address(this)) >= requiredStake,
                 "LeaseAgreement: Insufficient PGT allowance"
             );
             
             // Transfer PGT tokens from spender to this contract
             require(
-                pgtToken.transferFrom(msg.sender, address(this), stakeAmount),
+                pgtToken.transferFrom(msg.sender, address(this), requiredStake),
                 "LeaseAgreement: PGT transfer failed"
             );
             
@@ -272,7 +293,7 @@ contract LeaseAgreement is ILeaseAgreement, ReentrancyGuard, Ownable {
             lease.disputeId = disputeCount - 1; // disputeCount is incremented after raising dispute
         }
         
-        emit DisputeRaised(leaseId, lease.spender, lease.earner, reason, stakeAmount);
+        emit DisputeRaised(leaseId, lease.spender, lease.earner, reason, requiredStake);
     }
     
     /**
@@ -318,6 +339,17 @@ contract LeaseAgreement is ILeaseAgreement, ReentrancyGuard, Ownable {
         lease.stakeAmount = 0;
         
         emit DisputeResolved(leaseId, isDisputeValid, stakeAmount);
+    }
+    
+    /**
+     * @dev Allows the DAO to update the dispute stake rate.
+     * @param newRate The new dispute stake rate (e.g., 10 for 10%)
+     */
+    function setDisputeStakeRate(uint256 newRate) external override onlyOwner {
+        require(newRate > 0 && newRate <= 100, "LeaseAgreement: Stake rate must be between 1 and 100");
+        uint256 oldRate = disputeStakeRate;
+        disputeStakeRate = newRate;
+        emit DisputeStakeRateUpdated(oldRate, newRate);
     }
     
     /**

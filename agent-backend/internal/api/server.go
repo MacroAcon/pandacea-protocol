@@ -74,8 +74,7 @@ type LeaseResponse struct {
 
 // DisputeRequest represents a dispute request
 type DisputeRequest struct {
-	Reason      string `json:"reason"`
-	StakeAmount string `json:"stakeAmount"` // PGT token amount to stake
+	Reason string `json:"reason"`
 }
 
 // DisputeResponse represents the response for the dispute endpoint
@@ -595,18 +594,14 @@ func (server *Server) handleRaiseDispute(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if req.StakeAmount == "" {
-		server.sendErrorResponse(w, r, http.StatusBadRequest, ErrorCodeValidationError, "Stake amount is required")
-		return
-	}
-
-	// TODO: Implement blockchain interaction to raise dispute with stake
+	// TODO: Implement blockchain interaction to raise dispute with dynamic stake
 	// This would involve:
-	// 1. Verifying the spender has sufficient PGT tokens
-	// 2. Checking PGT allowance for the LeaseAgreement contract
-	// 3. Calling the raiseDispute function on the smart contract
+	// 1. Calling getRequiredStake(leaseId) to get the calculated stake amount
+	// 2. Verifying the spender has sufficient PGT tokens
+	// 3. Checking PGT allowance for the LeaseAgreement contract
+	// 4. Calling the raiseDispute function on the smart contract
 	// For now, we'll return a mock response
-	server.logger.Info("stake-based dispute raised", "lease_id", leaseID, "reason", req.Reason, "stake_amount", req.StakeAmount)
+	server.logger.Info("dynamic stake-based dispute raised", "lease_id", leaseID, "reason", req.Reason)
 
 	response := DisputeResponse{
 		DisputeID: fmt.Sprintf("dispute_%s_%d", leaseID, time.Now().Unix()),

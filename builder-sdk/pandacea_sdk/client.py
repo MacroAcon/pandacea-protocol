@@ -583,18 +583,45 @@ class PandaceaClient:
         except Exception as e:
             raise PandaceaException(f"Failed to approve PGT tokens: {e}")
 
-    def raise_dispute(self, lease_id: str, reason: str, stake_amount: int) -> str:
+    def get_required_stake(self, lease_id: str) -> int:
         """
-        Raise a stake-based dispute against an earner for a specific lease.
+        Get the required stake amount for a given lease based on the dynamic stake calculation.
         
-        This method orchestrates two transactions:
-        1. Approve PGT tokens for the LeaseAgreement contract
-        2. Call raiseDispute on the LeaseAgreement contract
+        Args:
+            lease_id: The on-chain ID of the lease.
+            
+        Returns:
+            The required stake amount in PGT tokens (in wei).
+            
+        Raises:
+            PandaceaException: If there's an issue with the blockchain interaction.
+        """
+        if not self.w3 or not self.contract:
+            raise PandaceaException("Web3 connection or contract not available")
+        
+        try:
+            # Convert lease_id to bytes32 format
+            lease_id_bytes = self.w3.to_bytes(hexstr=lease_id) if lease_id.startswith('0x') else lease_id.encode()
+            
+            # Call the getRequiredStake function
+            required_stake = self.contract.functions.getRequiredStake(lease_id_bytes).call()
+            return required_stake
+            
+        except Exception as e:
+            raise PandaceaException(f"Failed to get required stake: {e}")
+
+    def raise_dispute(self, lease_id: str, reason: str) -> str:
+        """
+        Raise a stake-based dispute against an earner for a specific lease with dynamic stake calculation.
+        
+        This method orchestrates the following:
+        1. Get the required stake amount based on lease value and dispute stake rate
+        2. Approve PGT tokens for the LeaseAgreement contract
+        3. Call raiseDispute on the LeaseAgreement contract
 
         Args:
             lease_id: The on-chain ID of the lease to dispute.
             reason: The reason for the dispute.
-            stake_amount: The amount of PGT tokens to stake (in wei).
 
         Returns:
             The dispute ID for tracking the dispute.
@@ -604,9 +631,16 @@ class PandaceaClient:
             APIResponseError: If the API returns an error response.
             PandaceaException: If there's an issue with the request or response.
         """
-        # First, approve PGT tokens for the LeaseAgreement contract
+        # First, get the required stake amount based on lease value
         try:
-            approval_tx_hash = self.approve_pgt_tokens(self.contract_address, stake_amount)
+            required_stake = self.get_required_stake(lease_id)
+            logging.info(f"Required stake for lease {lease_id}: {required_stake} wei")
+        except Exception as e:
+            raise PandaceaException(f"Failed to get required stake: {e}")
+        
+        # Approve PGT tokens for the LeaseAgreement contract
+        try:
+            approval_tx_hash = self.approve_pgt_tokens(self.contract_address, required_stake)
             logging.info(f"PGT approval transaction: {approval_tx_hash}")
         except Exception as e:
             raise PandaceaException(f"Failed to approve PGT tokens for dispute: {e}")
@@ -619,11 +653,10 @@ class PandaceaClient:
             # Convert lease_id to bytes32 format
             lease_id_bytes = self.w3.to_bytes(hexstr=lease_id) if lease_id.startswith('0x') else lease_id.encode()
             
-            # Build the raiseDispute transaction
+            # Build the raiseDispute transaction (now without stake_amount parameter)
             dispute_txn = self.contract.functions.raiseDispute(
                 lease_id_bytes,
-                reason,
-                stake_amount
+                reason
             ).build_transaction({
                 'from': self.w3.to_checksum_address(self.w3.eth.account.from_key(self.spender_private_key).address),
                 'gas': 200000,
@@ -643,8 +676,7 @@ class PandaceaClient:
             
             # Also call the API endpoint for off-chain tracking
             payload = {
-                "reason": reason,
-                "stakeAmount": str(stake_amount)
+                "reason": reason
             }
 
             payload_json = json.dumps(payload, separators=(',', ':'))
