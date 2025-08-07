@@ -1,6 +1,6 @@
 # **Pandacea Protocol \- System Design Document (SDD)**
 
-**Version: 1.3**
+**Version: 1.4**
 
 **Status: Final**
 
@@ -334,7 +334,7 @@ interface IReputation {
   * **Threat**: A sophisticated actor uses off-chain "dark pool" transactions to manipulate the on-chain Dynamic Minimum Pricing (DMP).  
   * **Mitigation (Hardened)**: The DMP's averaging window will be **dynamically shortened during periods of high market volatility** to make it more responsive. The DAO will also consider **publishing aggregated dark pool metrics** to increase market transparency.
 
-### **7\. Resolved Questions & Decisions (v1.3)**
+### **7\. Resolved Questions & Decisions (v1.4)**
 
 * **Q4: Protocol Interoperability:** How does the protocol ensure it can be easily integrated by the growing number of AI agents and LLM applications?  
   * **Finding:** The industry is rapidly converging on the Model Context Protocol (MCP) as the standard for agent-tool interaction. A secondary standard for Agent-to-Agent (A2A) communication is emerging for complex collaboration.  
@@ -342,3 +342,56 @@ interface IReputation {
 * **Q5: Economic Stability:** How does the protocol prevent reputation farming and other economic exploits identified in simulations?  
   * **Finding:** Simulations showed that the initial economic parameters were vulnerable to collusive reputation farming and that the DMP could be manipulated by off-chain activity.  
   * **Decision:** The protocol's economic parameters have been hardened. **Collusion costs have been increased**, the **weight of reputation in royalty calculations has been reduced**, and a **reputation decay rate** has been introduced. These changes, now reflected in the agent's default configuration, significantly increase the cost and reduce the effectiveness of reputation farming. Future iterations will focus on making the DMP more responsive to market shocks.
+
+## **8\. Analytics & Monitoring Platform**
+
+### **8.1. Purpose & Strategic Importance**
+
+To ensure the economic health, security, and transparent growth of the Pandacea Protocol, a robust analytics and monitoring platform is a required component of the system architecture. This platform is not an afterthought but a core utility for evidence-based governance and strategic decision-making. Its primary objectives are:
+
+* **Economic Validation:** To provide empirical, real-time data on the performance of the core economic mechanisms (PDVF, DMP, RBR), moving from theoretical models to live validation.  
+* **Growth Tracking:** To monitor the Key Performance Indicators (KPIs) that define the protocol's "Graduation Triggers" for progressive decentralization, such as Monthly Active Wallets (MAW) and total value transacted .  
+* **Market Bootstrapping:** To make the market legible to new users by transparently tracking data prices and volumes, helping to solve the "cold start" problem.  
+* **Security & Threat Mitigation:** To serve as the first line of defense against economic exploits like Reputation Farming and Oracle Manipulation by providing real-time monitoring of network activity .
+
+---
+
+### **8.2. Platform Architecture**
+
+The analytics platform will follow a modern data engineering architecture, separating data collection, storage, and visualization into distinct layers for modularity and scalability.
+
+**8.2.1. Data Collection Layer: The "Pandacea Analytics Service"**
+
+A new, dedicated microservice is responsible for ingesting data from all parts of the ecosystem.
+
+* **On-Chain Data Source:** The service will connect to a Polygon PoS archive node and subscribe to all events emitted by the protocol's smart contracts. This includes, but is not limited to:  
+  * `LeaseCreated`, `LeaseApproved`, `LeaseExecuted`, `DisputeRaised` from `LeaseAgreement.sol`.  
+  * `RoyaltiesRecorded`, `RoyaltiesClaimed` from `RoyaltyDistributor.sol`.  
+  * Reputation score changes from `Reputation.sol`.  
+* **Off-Chain Data Source:** The service will ingest data from the P2P network, including DHT provider records for new `DataProducts` and other relevant metadata from agent interactions.
+
+**8.2.2. Data Warehousing Layer**
+
+To handle the volume and complexity of analytics queries, a dedicated data warehouse or time-series database will be used. A standard transactional database is insufficient for this purpose.
+
+* **Technology (MVP):** A time-series database like **TimescaleDB** or **ClickHouse** will be used for its efficiency in handling event-based data.  
+* **Schema:** The data will be stored in a de-normalized format optimized for analytical queries (e.g., pre-calculating daily active users, aggregating transaction volumes).
+
+**8.2.3. Visualization & Dashboarding Layer**
+
+The front-end dashboards will be built using a dedicated Business Intelligence (BI) tool to accelerate development.
+
+* **Technology (MVP):** An open-source tool like **Grafana** or **Metabase** will be connected to the data warehouse.  
+* **Access Control:** Access to different dashboards will be controlled. Public dashboards will be read-only for the community, while internal security dashboards will be restricted to the core team and the Community Security Council (CSC).
+
+---
+
+### **8.3. Core Dashboards**
+
+The platform will feature several purpose-built dashboards:
+
+* **Protocol Health Dashboard (Public):** Displays high-level growth metrics like MAW, Total Transaction Volume, TVL in escrow, and the number of active data products. This dashboard serves to build community trust through transparency.  
+* **Market Economics Dashboard (DAO-Governed):** Provides detailed insights into the protocol's economic mechanisms. This includes monitoring the PDVF-calculated fair value, the effectiveness of the DMP, and the distribution of royalties via the RBR system. It will also track gas costs to inform scaling decisions.  
+* **Security & Threat Analysis Dashboard (Internal):** A real-time monitoring tool for the core team to detect and analyze potential economic exploits. It will feature algorithmic monitoring for  
+   **Reputation Farming** by flagging suspicious trading clusters and alerts for potential **Oracle Manipulation** by tracking price deviations .
+

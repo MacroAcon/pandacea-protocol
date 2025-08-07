@@ -1,4 +1,7 @@
 pytest>=7.4.0
 requests>=2.31.0
 pydantic>=2.5.0
-web3>=6.11.1 
+web3>=6.11.1
+pandas>=1.5.3
+numpy>=1.24.3
+torch>=1.13.1 

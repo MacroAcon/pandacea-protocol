@@ -24,4 +24,7 @@ server:
 
 p2p:
   listen_port: 0  # 0 means let libp2p choose a random port
-  key_file_path: "~/.pandacea/agent.key"  # Path to store the agent's private key 
+  key_file_path: "~/.pandacea/agent.key"  # Path to store the agent's private key
+
+ipfs:
+  api_url: "http://127.0.0.1:5001"  # IPFS API URL for fetching computation scripts 

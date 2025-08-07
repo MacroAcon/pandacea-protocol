@@ -10,23 +10,24 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	P2P       P2PConfig       `yaml:"p2p"`
+	Server     ServerConfig     `yaml:"server"`
+	P2P        P2PConfig        `yaml:"p2p"`
 	Blockchain BlockchainConfig `yaml:"blockchain"`
+	IPFS       IPFSConfig       `yaml:"ipfs"`
 }
 
 // ServerConfig contains HTTP server configuration
 type ServerConfig struct {
 	Port     int    `yaml:"port"`
 	MinPrice string `yaml:"min_price"`
-    
-    // Economic parameters based on simulation findings
-    RoyaltyPercentage      float64 `yaml:"royalty_percentage"`
-    SaboteurCooldown       int     `yaml:"saboteur_cooldown"`
-    ReputationWeight       float64 `yaml:"reputation_weight"`
-    ReputationDecayRate    float64 `yaml:"reputation_decay_rate"`
-    CollusionSpendFraction float64 `yaml:"collusion_spend_fraction"`
-    CollusionBonusDivisor  int     `yaml:"collusion_bonus_divisor"`
+
+	// Economic parameters based on simulation findings
+	RoyaltyPercentage      float64 `yaml:"royalty_percentage"`
+	SaboteurCooldown       int     `yaml:"saboteur_cooldown"`
+	ReputationWeight       float64 `yaml:"reputation_weight"`
+	ReputationDecayRate    float64 `yaml:"reputation_decay_rate"`
+	CollusionSpendFraction float64 `yaml:"collusion_spend_fraction"`
+	CollusionBonusDivisor  int     `yaml:"collusion_bonus_divisor"`
 }
 
 // P2PConfig contains P2P node configuration
@@ -37,8 +38,13 @@ type P2PConfig struct {
 
 // BlockchainConfig contains blockchain configuration
 type BlockchainConfig struct {
-	RPCURL         string `yaml:"rpc_url"`
+	RPCURL          string `yaml:"rpc_url"`
 	ContractAddress string `yaml:"contract_address"`
+}
+
+// IPFSConfig contains IPFS configuration
+type IPFSConfig struct {
+	APIURL string `yaml:"api_url"`
 }
 
 // Load loads configuration from file and environment variables
@@ -59,8 +65,11 @@ func Load(configPath string) (*Config, error) {
 			ListenPort: 0, // Let libp2p choose a random port
 		},
 		Blockchain: BlockchainConfig{
-			RPCURL:         "http://127.0.0.1:8545", // Default Anvil RPC URL
+			RPCURL:          "http://127.0.0.1:8545", // Default Anvil RPC URL
 			ContractAddress: "",                      // Must be set via environment variable
+		},
+		IPFS: IPFSConfig{
+			APIURL: "http://127.0.0.1:5001", // Default IPFS API URL
 		},
 	}
 

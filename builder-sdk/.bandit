@@ -1,0 +1,24 @@
+[bandit]
+# Bandit configuration file for Pandacea Builder SDK
+# This file configures security scanning behavior
+
+# Exclude certain directories from scanning
+exclude_dirs = ["tests", ".pytest_cache", "__pycache__"]
+
+# Skip certain test IDs (if needed for false positives)
+# skip = ["B101", "B601"]
+
+# Include only certain test IDs (if you want to focus on specific issues)
+# include = ["B105", "B303", "B602", "B608"]
+
+# Set confidence levels to include
+confidence = ["HIGH", "MEDIUM", "LOW"]
+
+# Set severity levels to include
+severity = ["HIGH", "MEDIUM", "LOW"]
+
+# Output format
+output_format = "json"
+
+# Verbose output
+verbose = true 

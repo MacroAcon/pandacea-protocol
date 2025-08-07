@@ -71,6 +71,20 @@ services:
     restart: unless-stopped
     # This service intentionally disrupts agent-backend for chaos testing
 
+  # PySyft Datasite Service - Privacy-preserving computation environment
+  # Provides isolated containers for executing federated learning and other
+  # privacy-preserving computations using OpenMined's PySyft
+  pysyft-datasite:
+    build:
+      context: ./agent-backend
+      dockerfile: Dockerfile.pysyft
+    image: pandacea/pysyft-datasite:latest
+    container_name: pysyft-datasite
+    networks:
+      - pandacea-network
+    # This service is used by the agent-backend for privacy-preserving computations
+    # It's not started by default but built and available when needed
+
 volumes:
   # Go modules cache - Persists Go module dependencies between container restarts
   # Improves build performance and reduces network usage

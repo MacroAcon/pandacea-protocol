@@ -1,0 +1,83 @@
+name: Builder SDK CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'builder-sdk/**'
+      - '.github/workflows/sdk-ci.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'builder-sdk/**'
+      - '.github/workflows/sdk-ci.yml'
+
+jobs:
+  test:
+    name: Test and Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        
+    - name: Install dependencies
+      working-directory: builder-sdk
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        pip install pytest pytest-cov bandit
+        
+    - name: Run unit tests
+      working-directory: builder-sdk
+      run: |
+        pytest tests/ -v --cov=pandacea_sdk --cov-report=xml
+        
+    - name: Run security scan
+      working-directory: builder-sdk
+      run: |
+        bandit -r pandacea_sdk/ -f json -o security-report.json -c .bandit
+        bandit -r pandacea_sdk/ -f txt -c .bandit
+      continue-on-error: false
+      
+    - name: Check for security issues
+      working-directory: builder-sdk
+      run: |
+        # Parse bandit output and fail if any security issues found
+        if [ -f security-report.json ]; then
+          # Count total security issues
+          ISSUE_COUNT=$(jq '.results | length' security-report.json)
+          
+          if [ "$ISSUE_COUNT" -gt 0 ]; then
+            echo "❌ Found $ISSUE_COUNT security issues"
+            echo "Security scan failed. Please review and fix the issues above."
+            exit 1
+          else
+            echo "✅ No security issues found"
+          fi
+        else
+          echo "❌ Security report not generated"
+          exit 1
+        fi
+        
+    - name: Upload security report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: sdk-security-report
+        path: builder-sdk/security-report.json
+        retention-days: 30
+        
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: sdk-coverage-report
+        path: builder-sdk/coverage.xml
+        retention-days: 30 

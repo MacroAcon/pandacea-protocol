@@ -1,0 +1,46 @@
+# PySyft Datasite Docker Image for Pandacea Protocol
+# This image provides a secure, isolated environment for privacy-preserving computations
+
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/workspace
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create workspace and data directories
+RUN mkdir -p /workspace /data /artifacts
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip
+
+# Install PySyft and related packages
+RUN pip install --no-cache-dir \
+    syft==0.5.0 \
+    torch==2.0.1 \
+    torchvision==0.15.2 \
+    pandas==2.0.3 \
+    numpy==1.24.3 \
+    scikit-learn==1.3.0 \
+    matplotlib==3.7.2 \
+    seaborn==0.12.2
+
+# Set working directory
+WORKDIR /workspace
+
+# Create a non-root user for security
+RUN useradd --create-home --shell /bin/bash pysyft && \
+    chown -R pysyft:pysyft /workspace /data /artifacts
+
+# Switch to non-root user
+USER pysyft
+
+# Default command to keep container running
+CMD ["tail", "-f", "/dev/null"] 

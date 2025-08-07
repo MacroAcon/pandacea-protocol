@@ -3,6 +3,8 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "./Reputation.sol";
+import "./PGT.sol";
 
 /**
  * @title ILeaseAgreement
@@ -14,11 +16,16 @@ interface ILeaseAgreement {
     event LeaseCreated(bytes32 indexed leaseId, address indexed spender, address indexed earner, uint256 price);
     event LeaseApproved(bytes32 indexed leaseId);
     event LeaseExecuted(bytes32 indexed leaseId);
+    event LeaseFinalized(bytes32 indexed leaseId, address indexed earner, uint256 reputationReward);
+    event DisputeRaised(bytes32 indexed leaseId, address indexed spender, address indexed earner, string reason, uint256 stakeAmount);
+    event DisputeResolved(bytes32 indexed leaseId, bool isDisputeValid, uint256 stakeAmount);
 
     function createLease(address earner, bytes32 dataProductId, uint256 maxPrice) external payable;
     function approveLease(bytes32 leaseId) external;
     function executeLease(bytes32 leaseId) external;
-    function raiseDispute(bytes32 leaseId, string calldata reason) external;
+    function finalizeLease(bytes32 leaseId) external;
+    function raiseDispute(bytes32 leaseId, string calldata reason, uint256 stakeAmount) external;
+    function resolveDispute(bytes32 leaseId, bool isDisputeValid) external;
 }
 
 /**
@@ -31,6 +38,16 @@ contract LeaseAgreement is ILeaseAgreement, ReentrancyGuard, Ownable {
     // Dynamic Minimum Pricing (DMP) - minimum price required for lease creation
     uint256 public constant MIN_PRICE = 0.001 ether; // 0.001 ETH minimum price
     
+    // Dispute window - time after execution before lease can be finalized
+    uint256 public constant DISPUTE_WINDOW = 7 days;
+    
+    // Contract references
+    Reputation public reputationContract;
+    PGT public pgtToken;
+    
+    // DAO treasury address for stake forfeiture
+    address public daoTreasury;
+    
     // Lease structure to store lease data
     struct Lease {
         address spender;
@@ -41,7 +58,11 @@ contract LeaseAgreement is ILeaseAgreement, ReentrancyGuard, Ownable {
         bool isApproved;
         bool isExecuted;
         bool isDisputed;
+        bool isFinalized;
         uint256 createdAt;
+        uint256 executedAt;
+        uint256 disputeId; // Reference to dispute in Reputation contract
+        uint256 stakeAmount; // PGT tokens staked for dispute
     }
     
     // Mapping from leaseId to Lease struct
@@ -53,7 +74,15 @@ contract LeaseAgreement is ILeaseAgreement, ReentrancyGuard, Ownable {
     // Counter for generating unique lease IDs
     uint256 private _leaseCounter;
     
-    constructor() Ownable(msg.sender) {}
+    constructor(address _reputationContract, address _pgtToken, address _daoTreasury) Ownable(msg.sender) {
+        require(_reputationContract != address(0), "Invalid reputation contract address");
+        require(_pgtToken != address(0), "Invalid PGT token address");
+        require(_daoTreasury != address(0), "Invalid DAO treasury address");
+        
+        reputationContract = Reputation(_reputationContract);
+        pgtToken = PGT(_pgtToken);
+        daoTreasury = _daoTreasury;
+    }
     
     /**
      * @dev Creates a new lease agreement with Dynamic Minimum Pricing (DMP) validation.
@@ -92,7 +121,11 @@ contract LeaseAgreement is ILeaseAgreement, ReentrancyGuard, Ownable {
             isApproved: false,
             isExecuted: false,
             isDisputed: false,
-            createdAt: block.timestamp
+            isFinalized: false,
+            createdAt: block.timestamp,
+            executedAt: 0,
+            disputeId: 0,
+            stakeAmount: 0
         });
         
         leaseExists[leaseId] = true;
@@ -101,7 +134,6 @@ contract LeaseAgreement is ILeaseAgreement, ReentrancyGuard, Ownable {
         emit LeaseCreated(leaseId, msg.sender, earner, msg.value);
         
         // TODO: Implement data product validation logic
-        // TODO: Implement reputation system integration
         // TODO: Implement escrow mechanism for payment
     }
     
@@ -138,29 +170,154 @@ contract LeaseAgreement is ILeaseAgreement, ReentrancyGuard, Ownable {
         // TODO: Implement payment release logic
         
         leases[leaseId].isExecuted = true;
+        leases[leaseId].executedAt = block.timestamp;
         
         emit LeaseExecuted(leaseId);
     }
     
     /**
-     * @dev Raises a dispute for a lease.
+     * @dev Finalizes a lease and rewards the earner with positive reputation.
+     * @param leaseId The unique identifier of the lease to finalize
+     */
+    function finalizeLease(bytes32 leaseId) external override nonReentrant {
+        require(leaseExists[leaseId], "LeaseAgreement: Lease does not exist");
+        require(msg.sender == leases[leaseId].spender, "LeaseAgreement: Only spender can finalize lease");
+        require(leases[leaseId].isExecuted, "LeaseAgreement: Lease must be executed before finalization");
+        require(!leases[leaseId].isDisputed, "LeaseAgreement: Cannot finalize disputed lease");
+        require(!leases[leaseId].isFinalized, "LeaseAgreement: Lease already finalized");
+        
+        Lease storage lease = leases[leaseId];
+        
+        // Check if dispute window has passed
+        require(
+            block.timestamp >= lease.executedAt + DISPUTE_WINDOW,
+            "LeaseAgreement: Dispute window has not passed"
+        );
+        
+        // Mark lease as finalized
+        lease.isFinalized = true;
+        
+        // Reward earner with positive reputation
+        reputationContract.updateReputation(lease.earner, true, lease.price);
+        
+        // Get the reputation change for the event
+        uint256 reputationReward = _calculateReputationReward(lease.price);
+        
+        emit LeaseFinalized(leaseId, lease.earner, reputationReward);
+    }
+    
+    /**
+     * @dev Internal function to calculate reputation reward based on lease value
+     * @param leaseValue Value of the lease in wei
+     * @return Reputation points to be awarded
+     */
+    function _calculateReputationReward(uint256 leaseValue) internal pure returns (uint256) {
+        // Tier 1: < 1 ETH (1e18 wei) = +25 points
+        if (leaseValue < 1e18) {
+            return 25;
+        }
+        // Tier 2: 1 ETH <= leaseValue < 10 ETH = +50 points
+        else if (leaseValue < 10e18) {
+            return 50;
+        }
+        // Tier 3: leaseValue >= 10 ETH = +100 points
+        else {
+            return 100;
+        }
+    }
+    
+    /**
+     * @dev Raises a stake-based dispute for a lease and integrates with the reputation system.
      * @param leaseId The unique identifier of the lease to dispute
      * @param reason The reason for the dispute
+     * @param stakeAmount The amount of PGT tokens to stake for the dispute
      */
-    function raiseDispute(bytes32 leaseId, string calldata reason) external override nonReentrant {
+    function raiseDispute(bytes32 leaseId, string calldata reason, uint256 stakeAmount) external override nonReentrant {
         require(leaseExists[leaseId], "LeaseAgreement: Lease does not exist");
         require(
             msg.sender == leases[leaseId].spender || msg.sender == leases[leaseId].earner,
             "LeaseAgreement: Only spender or earner can raise dispute"
         );
         require(!leases[leaseId].isDisputed, "LeaseAgreement: Dispute already raised");
+        require(!leases[leaseId].isFinalized, "LeaseAgreement: Cannot dispute finalized lease");
         require(bytes(reason).length > 0, "LeaseAgreement: Dispute reason cannot be empty");
+        require(stakeAmount > 0, "LeaseAgreement: Stake amount must be greater than 0");
         
-        // TODO: Implement dispute resolution mechanism
-        // TODO: Implement arbitration system
-        // TODO: Implement refund logic for disputed leases
+        Lease storage lease = leases[leaseId];
+        lease.isDisputed = true;
+        lease.stakeAmount = stakeAmount;
         
-        leases[leaseId].isDisputed = true;
+        // If spender is raising dispute against earner, handle staking and reputation
+        if (msg.sender == lease.spender) {
+            // Verify spender has approved this contract to spend their PGT tokens
+            require(
+                pgtToken.allowance(msg.sender, address(this)) >= stakeAmount,
+                "LeaseAgreement: Insufficient PGT allowance"
+            );
+            
+            // Transfer PGT tokens from spender to this contract
+            require(
+                pgtToken.transferFrom(msg.sender, address(this), stakeAmount),
+                "LeaseAgreement: PGT transfer failed"
+            );
+            
+            // Convert leaseId to uint256 for reputation contract
+            uint256 leaseIdUint = uint256(leaseId);
+            
+            // Raise dispute in reputation contract
+            reputationContract.raiseDispute(lease.earner, leaseIdUint, reason);
+            
+            // Get the dispute ID from reputation contract
+            uint256 disputeCount = reputationContract.getDisputeCount();
+            lease.disputeId = disputeCount - 1; // disputeCount is incremented after raising dispute
+        }
+        
+        emit DisputeRaised(leaseId, lease.spender, lease.earner, reason, stakeAmount);
+    }
+    
+    /**
+     * @dev Resolves a dispute and handles stake distribution based on validity.
+     * @param leaseId The unique identifier of the lease
+     * @param isDisputeValid Whether the dispute is valid (true) or invalid (false)
+     */
+    function resolveDispute(bytes32 leaseId, bool isDisputeValid) external override onlyOwner {
+        require(leaseExists[leaseId], "LeaseAgreement: Lease does not exist");
+        require(leases[leaseId].isDisputed, "LeaseAgreement: Lease is not disputed");
+        require(leases[leaseId].stakeAmount > 0, "LeaseAgreement: No stake found for dispute");
+        
+        Lease storage lease = leases[leaseId];
+        uint256 stakeAmount = lease.stakeAmount;
+        
+        if (isDisputeValid) {
+            // Dispute is valid: penalize earner and return stake to spender
+            reputationContract.updateReputation(lease.earner, false, lease.price);
+            
+            // Return stake to spender
+            require(
+                pgtToken.transfer(lease.spender, stakeAmount),
+                "LeaseAgreement: Failed to return stake to spender"
+            );
+        } else {
+            // Dispute is invalid: no reputation penalty, stake is forfeited
+            // 50% to earner, 50% to DAO treasury
+            uint256 earnerShare = stakeAmount / 2;
+            uint256 treasuryShare = stakeAmount - earnerShare; // Handle odd amounts
+            
+            require(
+                pgtToken.transfer(lease.earner, earnerShare),
+                "LeaseAgreement: Failed to transfer stake to earner"
+            );
+            
+            require(
+                pgtToken.transfer(daoTreasury, treasuryShare),
+                "LeaseAgreement: Failed to transfer stake to DAO treasury"
+            );
+        }
+        
+        // Clear the stake amount
+        lease.stakeAmount = 0;
+        
+        emit DisputeResolved(leaseId, isDisputeValid, stakeAmount);
     }
     
     /**
@@ -181,6 +338,62 @@ contract LeaseAgreement is ILeaseAgreement, ReentrancyGuard, Ownable {
         // TODO: Implement minimum price update logic with proper validation
         // TODO: Implement price update events
         // TODO: Implement governance mechanism for price updates
+    }
+    
+    /**
+     * @dev Get dispute information for a lease from the reputation contract.
+     * @param leaseId The unique identifier of the lease
+     * @return disputeId The dispute ID in the reputation contract
+     * @return spender Address of the spender who raised the dispute
+     * @return earner Address of the earner being disputed
+     * @return leaseIdUint The lease ID as uint256
+     * @return timestamp Timestamp when dispute was raised
+     * @return reason Reason for the dispute
+     * @return resolved Whether the dispute is resolved
+     * @return inFavorOfSpender Whether the dispute was resolved in favor of spender
+     */
+    function getDisputeInfo(bytes32 leaseId) external view returns (
+        uint256 disputeId,
+        address spender,
+        address earner,
+        uint256 leaseIdUint,
+        uint256 timestamp,
+        string memory reason,
+        bool resolved,
+        bool inFavorOfSpender
+    ) {
+        require(leaseExists[leaseId], "LeaseAgreement: Lease does not exist");
+        require(leases[leaseId].isDisputed, "LeaseAgreement: Lease is not disputed");
+        
+        disputeId = leases[leaseId].disputeId;
+        return reputationContract.getDispute(disputeId);
+    }
+    
+    /**
+     * @dev Update the reputation contract reference (only owner).
+     * @param newReputationContract Address of the new reputation contract
+     */
+    function updateReputationContract(address newReputationContract) external onlyOwner {
+        require(newReputationContract != address(0), "Invalid reputation contract address");
+        reputationContract = Reputation(newReputationContract);
+    }
+    
+    /**
+     * @dev Update the PGT token contract reference (only owner).
+     * @param newPgtToken Address of the new PGT token contract
+     */
+    function updatePgtToken(address newPgtToken) external onlyOwner {
+        require(newPgtToken != address(0), "Invalid PGT token address");
+        pgtToken = PGT(newPgtToken);
+    }
+    
+    /**
+     * @dev Update the DAO treasury address (only owner).
+     * @param newDaoTreasury Address of the new DAO treasury
+     */
+    function updateDaoTreasury(address newDaoTreasury) external onlyOwner {
+        require(newDaoTreasury != address(0), "Invalid DAO treasury address");
+        daoTreasury = newDaoTreasury;
     }
     
     /**

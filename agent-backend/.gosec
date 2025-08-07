@@ -1,0 +1,26 @@
+# gosec configuration file for Pandacea Agent Backend
+# This file configures security scanning behavior
+
+# Exclude certain directories from scanning
+exclude-dirs = ["vendor", "testdata"]
+
+# Include only certain rule IDs (if you want to focus on specific issues)
+# include = ["G101", "G204", "G304", "G401", "G404"]
+
+# Exclude certain rule IDs (if needed for false positives)
+# exclude = ["G101", "G601"]
+
+# Set severity levels to include
+severity = ["HIGH", "MEDIUM", "LOW"]
+
+# Set confidence levels to include
+confidence = ["HIGH", "MEDIUM", "LOW"]
+
+# Output format
+fmt = "json"
+
+# Include test files in scanning
+tests = true
+
+# Include vendor dependencies in scanning
+vendor = false 

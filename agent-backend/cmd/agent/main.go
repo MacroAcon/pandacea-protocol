@@ -15,6 +15,7 @@ import (
 	"pandacea/agent-backend/internal/contracts"
 	"pandacea/agent-backend/internal/p2p"
 	"pandacea/agent-backend/internal/policy"
+	"pandacea/agent-backend/internal/privacy"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -68,8 +69,40 @@ func main() {
 		}
 	}()
 
+	// Initialize privacy service if blockchain configuration is provided
+	var privacyService privacy.PrivacyService
+	if cfg.Blockchain.RPCURL != "" && cfg.Blockchain.ContractAddress != "" {
+		// Connect to Ethereum client
+		ethClient, err := ethclient.Dial(cfg.Blockchain.RPCURL)
+		if err != nil {
+			logger.Error("failed to connect to Ethereum client", "error", err)
+			os.Exit(1)
+		}
+		defer ethClient.Close()
+
+		// Create privacy service
+		contractAddress := common.HexToAddress(cfg.Blockchain.ContractAddress)
+		dataDir := "./data"           // Default data directory
+		poolSize := 3                 // Default pool size
+		ipfsAPIURL := cfg.IPFS.APIURL // Get IPFS API URL from config
+		privacyService, err = privacy.NewPrivacyService(logger, ethClient, contractAddress, dataDir, poolSize, ipfsAPIURL)
+		if err != nil {
+			logger.Error("failed to initialize privacy service", "error", err)
+			os.Exit(1)
+		}
+
+		// Start the privacy service
+		if err := privacyService.Start(); err != nil {
+			logger.Error("failed to start privacy service", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("privacy service started", "contract_address", cfg.Blockchain.ContractAddress, "pool_size", poolSize)
+	} else {
+		logger.Warn("blockchain configuration not provided, privacy service disabled")
+	}
+
 	// Initialize API server
-	apiServer := api.NewServer(policyEngine, logger, p2pNode)
+	apiServer := api.NewServer(policyEngine, logger, p2pNode, privacyService)
 
 	// Start API server in a goroutine
 	go func() {
@@ -120,6 +153,13 @@ func main() {
 	// Shutdown API server
 	if err := apiServer.Shutdown(shutdownCtx); err != nil {
 		logger.Error("failed to shutdown API server", "error", err)
+	}
+
+	// Shutdown privacy service
+	if privacyService != nil {
+		if err := privacyService.Stop(); err != nil {
+			logger.Error("failed to shutdown privacy service", "error", err)
+		}
 	}
 
 	logger.Info("agent backend shutdown complete")

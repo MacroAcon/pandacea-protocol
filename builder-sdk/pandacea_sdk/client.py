@@ -426,6 +426,489 @@ class PandaceaClient:
 
         return tx_hash.hex()
     # END ADDITION
+
+    def execute_computation(self, lease_id: str, computation_cid: str, inputs: list[dict]) -> str:
+        """
+        Start an asynchronous privacy-preserving computation on an Earner's agent.
+
+        Args:
+            lease_id: The on-chain ID of the approved data lease.
+            computation_cid: The IPFS Content ID (CID) pointing to the computation script.
+            inputs: A list of dicts specifying the data assets and their variable names.
+
+        Returns:
+            The computation ID for tracking the job.
+            
+        Raises:
+            AgentConnectionError: If unable to connect to the agent.
+            APIResponseError: If the API returns an error response.
+            PandaceaException: If there's an issue with the request or response.
+        """
+        # Construct the JSON body
+        payload = {
+            "lease_id": lease_id,
+            "computationCid": computation_cid,
+            "inputs": inputs
+        }
+
+        # Serialize payload to JSON
+        payload_json = json.dumps(payload, separators=(',', ':'))
+        payload_bytes = payload_json.encode('utf-8')
+
+        # Prepare headers with signature
+        headers = self._prepare_headers(payload_bytes)
+
+        url = urljoin(self.base_url, '/api/v1/privacy/execute')
+
+        try:
+            response = self.session.post(url, data=payload_bytes, headers=headers, timeout=self.timeout)
+            
+            # Check if the request was successful
+            response.raise_for_status()
+            
+            # Parse the JSON response
+            try:
+                data = response.json()
+            except json.JSONDecodeError as e:
+                raise APIResponseError(
+                    f"Invalid JSON response from API: {e}",
+                    status_code=response.status_code,
+                    response_text=response.text
+                )
+            
+            # Validate the response structure
+            if not isinstance(data, dict):
+                raise APIResponseError(
+                    "API response is not a valid JSON object",
+                    status_code=response.status_code,
+                    response_text=response.text
+                )
+            
+            if 'computation_id' not in data:
+                raise APIResponseError(
+                    "API response missing 'computation_id' field",
+                    status_code=response.status_code,
+                    response_text=response.text
+                )
+            
+            return data['computation_id']
+            
+        except requests.exceptions.ConnectionError as e:
+            raise AgentConnectionError(
+                f"Unable to connect to agent at {self.base_url}: {e}",
+                original_error=e
+            )
+        except requests.exceptions.Timeout as e:
+            raise AgentConnectionError(
+                f"Request to agent timed out after {self.timeout} seconds: {e}",
+                original_error=e
+            )
+        except requests.exceptions.HTTPError as e:
+            # This handles 4xx and 5xx status codes
+            raise APIResponseError(
+                f"API returned error status {e.response.status_code}: {e.response.text}",
+                status_code=e.response.status_code,
+                response_text=e.response.text
+            )
+        except requests.exceptions.RequestException as e:
+            raise AgentConnectionError(
+                f"Request failed: {e}",
+                original_error=e
+            )
+
+    def approve_pgt_tokens(self, spender_address: str, amount: int) -> str:
+        """
+        Approve PGT tokens for the LeaseAgreement contract to spend on behalf of the spender.
+        
+        Args:
+            spender_address: The address of the spender (must match the private key)
+            amount: The amount of PGT tokens to approve (in wei)
+            
+        Returns:
+            The transaction hash of the approval transaction
+            
+        Raises:
+            PandaceaException: If there's an issue with the blockchain interaction.
+        """
+        if not self.w3 or not self.spender_private_key:
+            raise PandaceaException("Web3 connection or spender private key not available")
+        
+        try:
+            # Get the PGT token contract address from environment or configuration
+            pgt_token_address = os.getenv("PGT_TOKEN_ADDRESS")
+            if not pgt_token_address:
+                raise PandaceaException("PGT_TOKEN_ADDRESS environment variable not set")
+            
+            # Load PGT token ABI (basic ERC20 ABI)
+            pgt_abi = [
+                {
+                    "constant": False,
+                    "inputs": [
+                        {"name": "spender", "type": "address"},
+                        {"name": "amount", "type": "uint256"}
+                    ],
+                    "name": "approve",
+                    "outputs": [{"name": "", "type": "bool"}],
+                    "payable": False,
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            pgt_contract = self.w3.eth.contract(address=pgt_token_address, abi=pgt_abi)
+            
+            # Build the approve transaction
+            approve_txn = pgt_contract.functions.approve(
+                spender_address,  # LeaseAgreement contract address
+                amount
+            ).build_transaction({
+                'from': self.w3.to_checksum_address(spender_address),
+                'gas': 100000,
+                'gasPrice': self.w3.eth.gas_price,
+                'nonce': self.w3.eth.get_transaction_count(spender_address),
+            })
+            
+            # Sign and send the transaction
+            signed_txn = self.w3.eth.account.sign_transaction(approve_txn, self.spender_private_key)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+            
+            # Wait for transaction receipt
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt.status == 0:
+                raise PandaceaException(f"PGT approval transaction failed: {tx_hash.hex()}")
+            
+            return tx_hash.hex()
+            
+        except Exception as e:
+            raise PandaceaException(f"Failed to approve PGT tokens: {e}")
+
+    def raise_dispute(self, lease_id: str, reason: str, stake_amount: int) -> str:
+        """
+        Raise a stake-based dispute against an earner for a specific lease.
+        
+        This method orchestrates two transactions:
+        1. Approve PGT tokens for the LeaseAgreement contract
+        2. Call raiseDispute on the LeaseAgreement contract
+
+        Args:
+            lease_id: The on-chain ID of the lease to dispute.
+            reason: The reason for the dispute.
+            stake_amount: The amount of PGT tokens to stake (in wei).
+
+        Returns:
+            The dispute ID for tracking the dispute.
+            
+        Raises:
+            AgentConnectionError: If unable to connect to the agent.
+            APIResponseError: If the API returns an error response.
+            PandaceaException: If there's an issue with the request or response.
+        """
+        # First, approve PGT tokens for the LeaseAgreement contract
+        try:
+            approval_tx_hash = self.approve_pgt_tokens(self.contract_address, stake_amount)
+            logging.info(f"PGT approval transaction: {approval_tx_hash}")
+        except Exception as e:
+            raise PandaceaException(f"Failed to approve PGT tokens for dispute: {e}")
+        
+        # Then, call the on-chain raiseDispute function
+        if not self.w3 or not self.contract or not self.spender_private_key:
+            raise PandaceaException("Web3 connection, contract, or spender private key not available")
+        
+        try:
+            # Convert lease_id to bytes32 format
+            lease_id_bytes = self.w3.to_bytes(hexstr=lease_id) if lease_id.startswith('0x') else lease_id.encode()
+            
+            # Build the raiseDispute transaction
+            dispute_txn = self.contract.functions.raiseDispute(
+                lease_id_bytes,
+                reason,
+                stake_amount
+            ).build_transaction({
+                'from': self.w3.to_checksum_address(self.w3.eth.account.from_key(self.spender_private_key).address),
+                'gas': 200000,
+                'gasPrice': self.w3.eth.gas_price,
+                'nonce': self.w3.eth.get_transaction_count(self.w3.eth.account.from_key(self.spender_private_key).address),
+            })
+            
+            # Sign and send the transaction
+            signed_txn = self.w3.eth.account.sign_transaction(dispute_txn, self.spender_private_key)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+            
+            # Wait for transaction receipt
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt.status == 0:
+                raise PandaceaException(f"Dispute transaction failed: {tx_hash.hex()}")
+            
+            # Also call the API endpoint for off-chain tracking
+            payload = {
+                "reason": reason,
+                "stakeAmount": str(stake_amount)
+            }
+
+            payload_json = json.dumps(payload, separators=(',', ':'))
+            payload_bytes = payload_json.encode('utf-8')
+            headers = self._prepare_headers(payload_bytes)
+            url = urljoin(self.base_url, f'/api/v1/leases/{lease_id}/dispute')
+
+            response = self.session.post(url, data=payload_bytes, headers=headers, timeout=self.timeout)
+            response.raise_for_status()
+            
+            data = response.json()
+            if 'disputeId' not in data:
+                raise APIResponseError(
+                    "API response missing 'disputeId' field",
+                    status_code=response.status_code,
+                    response_text=response.text
+                )
+            
+            return data['disputeId']
+            
+        except requests.exceptions.ConnectionError as e:
+            raise AgentConnectionError(
+                f"Unable to connect to agent at {self.base_url}: {e}",
+                original_error=e
+            )
+        except requests.exceptions.Timeout as e:
+            raise AgentConnectionError(
+                f"Request to agent timed out after {self.timeout} seconds: {e}",
+                original_error=e
+            )
+        except requests.exceptions.HTTPError as e:
+            raise APIResponseError(
+                f"API returned error status {e.response.status_code}: {e.response.text}",
+                status_code=e.response.status_code,
+                response_text=e.response.text
+            )
+        except requests.exceptions.RequestException as e:
+            raise AgentConnectionError(
+                f"Request failed: {e}",
+                original_error=e
+            )
+        except Exception as e:
+            raise PandaceaException(f"Failed to raise dispute: {e}")
+
+    def finalize_lease(self, lease_id: str) -> str:
+        """
+        Finalize a successful lease and reward the earner with positive reputation.
+        
+        This method calls the finalizeLease function on the LeaseAgreement contract,
+        which will reward the earner with positive reputation points based on the
+        lease value tier system.
+
+        Args:
+            lease_id: The on-chain ID of the lease to finalize.
+
+        Returns:
+            The transaction hash of the finalization transaction.
+            
+        Raises:
+            PandaceaException: If there's an issue with the blockchain transaction.
+        """
+        if not self.w3 or not self.contract or not self.spender_private_key:
+            raise PandaceaException("Web3 connection, contract, or spender private key not available")
+        
+        try:
+            # Convert lease_id to bytes32 format
+            lease_id_bytes = self.w3.to_bytes(hexstr=lease_id) if lease_id.startswith('0x') else lease_id.encode()
+            
+            # Build the finalizeLease transaction
+            finalize_txn = self.contract.functions.finalizeLease(
+                lease_id_bytes
+            ).build_transaction({
+                'from': self.w3.to_checksum_address(self.w3.eth.account.from_key(self.spender_private_key).address),
+                'gas': 150000,
+                'gasPrice': self.w3.eth.gas_price,
+                'nonce': self.w3.eth.get_transaction_count(self.w3.eth.account.from_key(self.spender_private_key).address),
+            })
+            
+            # Sign and send the transaction
+            signed_txn = self.w3.eth.account.sign_transaction(finalize_txn, self.spender_private_key)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+            
+            # Wait for transaction receipt
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt.status == 0:
+                raise PandaceaException(f"Lease finalization transaction failed: {tx_hash.hex()}")
+            
+            logging.info(f"Lease {lease_id} successfully finalized. Transaction: {tx_hash.hex()}")
+            return tx_hash.hex()
+            
+        except Exception as e:
+            raise PandaceaException(f"Failed to finalize lease: {e}")
+
+    def upload_code_to_ipfs(self, file_path: str) -> str:
+        """
+        Uploads a local file to an IPFS node and returns its CID.
+        
+        Args:
+            file_path: The local path to the file to upload.
+            
+        Returns:
+            The IPFS Content ID (CID) of the uploaded file.
+            
+        Raises:
+            PandaceaException: If there's an issue with the upload.
+        """
+        try:
+            import ipfshttpclient
+        except ImportError:
+            raise PandaceaException(
+                "ipfshttpclient library not found. Please install it with: pip install ipfshttpclient"
+            )
+        
+        # Default IPFS API URL (can be overridden via environment variable)
+        ipfs_api_url = os.getenv("IPFS_API_URL", "http://127.0.0.1:5001")
+        
+        try:
+            # Connect to IPFS node
+            with ipfshttpclient.connect(ipfs_api_url) as client:
+                # Upload the file
+                result = client.add(file_path)
+                
+                # Extract the CID from the result
+                if isinstance(result, list):
+                    # Multiple files uploaded (shouldn't happen with single file)
+                    cid = result[0]['Hash']
+                else:
+                    # Single file uploaded
+                    cid = result['Hash']
+                
+                return cid
+                
+        except Exception as e:
+            raise PandaceaException(f"Failed to upload file to IPFS: {e}")
+
+    def get_computation_result(self, computation_id: str) -> dict:
+        """
+        Get the result of an asynchronous computation.
+        
+        Args:
+            computation_id: The ID of the computation job.
+            
+        Returns:
+            A dictionary containing the computation status and results.
+            
+        Raises:
+            AgentConnectionError: If unable to connect to the agent.
+            APIResponseError: If the API returns an error response.
+            PandaceaException: For other errors.
+        """
+        # Prepare headers with signature
+        headers = self._prepare_headers()
+
+        url = urljoin(self.base_url, f'/api/v1/privacy/results/{computation_id}')
+
+        try:
+            response = self.session.get(url, headers=headers, timeout=self.timeout)
+            
+            # Check if the request was successful
+            response.raise_for_status()
+            
+            # Parse the JSON response
+            try:
+                data = response.json()
+            except json.JSONDecodeError as e:
+                raise APIResponseError(
+                    f"Invalid JSON response from API: {e}",
+                    status_code=response.status_code,
+                    response_text=response.text
+                )
+            
+            # Validate the response structure
+            if not isinstance(data, dict):
+                raise APIResponseError(
+                    "API response is not a valid JSON object",
+                    status_code=response.status_code,
+                    response_text=response.text
+                )
+            
+            if 'status' not in data:
+                raise APIResponseError(
+                    "API response missing 'status' field",
+                    status_code=response.status_code,
+                    response_text=response.text
+                )
+            
+            return data
+            
+        except requests.exceptions.ConnectionError as e:
+            raise AgentConnectionError(
+                f"Unable to connect to agent at {self.base_url}: {e}",
+                original_error=e
+            )
+        except requests.exceptions.Timeout as e:
+            raise AgentConnectionError(
+                f"Request to agent timed out after {self.timeout} seconds: {e}",
+                original_error=e
+            )
+        except requests.exceptions.HTTPError as e:
+            # This handles 4xx and 5xx status codes
+            raise APIResponseError(
+                f"API returned error status {e.response.status_code}: {e.response.text}",
+                status_code=e.response.status_code,
+                response_text=e.response.text
+            )
+        except requests.exceptions.RequestException as e:
+            raise AgentConnectionError(
+                f"Request failed: {e}",
+                original_error=e
+            )
+
+    def wait_for_computation(self, computation_id: str, timeout: float = 300.0, poll_interval: float = 2.0) -> dict:
+        """
+        Wait for a computation to complete and return the results.
+        
+        Args:
+            computation_id: The ID of the computation job.
+            timeout: Maximum time to wait in seconds.
+            poll_interval: Time between polling attempts in seconds.
+            
+        Returns:
+            A dictionary containing the computation results.
+            
+        Raises:
+            AgentConnectionError: If unable to connect to the agent.
+            APIResponseError: If the API returns an error response.
+            PandaceaException: For other errors or timeout.
+        """
+        import time
+        
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            result = self.get_computation_result(computation_id)
+            
+            if result['status'] == 'completed':
+                return result
+            elif result['status'] == 'failed':
+                error_msg = result.get('error', 'Unknown error occurred')
+                raise PandaceaException(f"Computation failed: {error_msg}")
+            
+            # Wait before polling again
+            time.sleep(poll_interval)
+        
+        raise PandaceaException(f"Computation timed out after {timeout} seconds")
+
+    def decode_artifact(self, encoded_artifact: str) -> bytes:
+        """
+        Decode a base64-encoded artifact back into bytes.
+        
+        Args:
+            encoded_artifact: Base64-encoded artifact string.
+            
+        Returns:
+            The decoded bytes.
+            
+        Raises:
+            PandaceaException: If decoding fails.
+        """
+        try:
+            return base64.b64decode(encoded_artifact)
+        except Exception as e:
+            raise PandaceaException(f"Failed to decode artifact: {e}")
     
     def close(self):
         """
