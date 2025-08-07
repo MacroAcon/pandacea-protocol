@@ -1,126 +1,227 @@
-# Pandacea Protocol MVP
+# Pandacea Protocol
 
-A revolutionary protocol for creating a human-centered data economy where individuals own and monetize their data while maintaining privacy and control.
+[![CI](https://github.com/pandacea/pandacea-protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/pandacea/pandacea-protocol/actions/workflows/ci.yml)
+[![SDK CI](https://github.com/pandacea/pandacea-protocol/actions/workflows/sdk-ci.yml/badge.svg)](https://github.com/pandacea/pandacea-protocol/actions/workflows/sdk-ci.yml)
+[![Agent CI](https://github.com/pandacea/pandacea-protocol/actions/workflows/agent-ci.yml/badge.svg)](https://github.com/pandacea/pandacea-protocol/actions/workflows/agent-ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](docs/)
+[![Whitepaper](https://img.shields.io/badge/whitepaper-v4.1-orange.svg)](docs/Pandacea%20Protocol%20Technical%20Whitepaper%20v4.1.pdf)
 
-## Overview
+---
 
-The Pandacea Protocol MVP demonstrates the core functionality of a decentralized data marketplace where:
-- **Earners** (data owners) can securely monetize their data
-- **Spenders** (data consumers) can discover and lease data products
-- **Smart contracts** ensure fair pricing and secure transactions
-- **P2P networking** enables decentralized discovery and communication
+## Mission Statement
 
-## Core Components
+The Pandacea Protocol is a decentralized infrastructure layer designed to facilitate a fair, secure, and transparent market for real-world, user-generated data. We address the systemic failures of the current data paradigm by establishing a new framework for "Informational Labor" built on verifiable consent and distributed value. Our protocol creates a human-centered data economy where individuals own and monetize their data while maintaining privacy and control through privacy-preserving computation, fair and transparent marketplace mechanisms, and decentralized governance.
 
-### 🏗️ Smart Contracts (`/contracts`)
-- **LeaseAgreement.sol**: Core smart contract implementing Dynamic Minimum Pricing (DMP)
-- **Foundry Testing**: Comprehensive unit tests with 100% coverage
-- **Polygon Mumbai Deployment**: Ready for testnet deployment
+## Core Features
 
-### 🤖 Agent Backend (`/agent-backend`)
-- **Go-based P2P Node**: libp2p networking with KAD-DHT discovery
-- **HTTP API Server**: RESTful endpoints for data product discovery
-- **Policy Engine**: Dynamic Minimum Pricing validation with decimal precision
-- **Structured Logging**: Privacy-preserving event logging
+### 🔗 **Decentralized Data Exchange**
+- **P2P Agent Architecture**: Built on Go and libp2p for secure, decentralized peer-to-peer networking
+- **KAD-DHT Discovery**: Efficient data product discovery through distributed hash tables
+- **Direct Negotiation**: Agents communicate directly without centralized intermediaries
 
-### 🛠️ Builder SDK (`/builder-sdk`)
-- **Python SDK**: Professional client library for developers
-- **Pydantic Models**: Type-safe data validation
-- **Comprehensive Testing**: Unit tests with mocking and error scenarios
-- **Developer-Friendly**: Clear error messages and context manager support
+### 🔒 **Privacy-Preserving Computation**
+- **OpenMined PySyft Integration**: Asynchronous, sandboxed execution of federated learning jobs
+- **Trust-by-Proof Model**: Cryptographic guarantees for privacy without sacrificing utility
+- **Multi-Tier Privacy**: Federated Learning and Secure Multi-Party Computation options
 
-## Visual Architecture
+### ⚖️ **On-Chain Trust & Reputation**
+- **Reputation.sol Contract**: Just-in-time decay and tiered reward system
+- **Verifiable Consent**: W3C standard Decentralized Identifiers (DIDs) and Verifiable Credentials (VCs)
+- **Legal Safe Harbor**: Immutable, auditable trail of consent for regulatory compliance
+
+### 💰 **Economic Security**
+- **Differentiated Dispute Stakes**: PGT stake scales with lease value to prevent spam
+- **Dynamic Minimum Pricing (DMP)**: Ensures fair pricing through algorithmic validation
+- **Perpetual Royalty System**: Original contributors receive ongoing compensation for derivative works
+
+### 🛡️ **Automated Security**
+- **CI/CD Pipeline**: Integration with gosec and Bandit for proactive security scanning
+- **Structured Logging**: Privacy-preserving event logging with no PII exposure
+- **Input Validation**: Strict schema validation for all API requests
+
+## System Architecture
 
 ![Pandacea Protocol Logical Architecture](logical-architecture-diagram.png)
 
-*The Pandacea Protocol enables direct peer-to-peer data transactions while maintaining privacy and ensuring fair pricing through smart contracts.*
+### **User Layer**
+- **MyData Agent (Earner)**: User-controlled application managing data sources and policies
+- **Buyer-Side Agent (Spender)**: Developer-focused application for data discovery and leasing
 
-## 🚀 Running the MVP Demo
+### **Protocol Layer**
+- **P2P Network**: libp2p with KAD-DHT for decentralized communication
+- **Storage Layer (IPFS)**: Distributed file system for content addressing
+- **Privacy Layer (PySyft)**: Framework for privacy-preserving computation
 
-Follow these simple steps to run the complete Pandacea Protocol MVP:
+### **Settlement Layer (Polygon PoS)**
+- **LeaseAgreement.sol**: Core smart contract for data lease management
+- **Reputation.sol**: Trust and reputation scoring system
+- **PGT.sol**: Protocol's native token for economic incentives
 
-### 1. Clone the Repository
-```bash
-git clone https://github.com/pandacea/pandacea-protocol.git
-cd pandacea-protocol
-```
+## Quick Start (Windows)
 
-### 2. Set Up Environment
-Create a `.env` file in the project root:
-```bash
-# Required for contract deployment
-MUMBAI_RPC_URL=https://polygon-mumbai.infura.io/v3/YOUR_PROJECT_ID
-DEPLOYER_PRIVATE_KEY=your_private_key_here
+### Prerequisites
 
-# Optional: For integration testing
-AGENT_PEER_ID=your_agent_peer_id
-```
+Install the following tools on your Windows machine:
 
-### 3. Start the Development Environment
-```bash
-# Start all services (Agent Backend, Anvil blockchain, IPFS)
-docker-compose up -d
+- **Go** (1.21+) - [Download](https://golang.org/dl/)
+- **Python** (3.9+) - [Download](https://www.python.org/downloads/)
+- **Poetry** - [Installation Guide](https://python-poetry.org/docs/#installation)
+- **Node.js** (18+) - [Download](https://nodejs.org/)
+- **Docker Desktop** - [Download](https://www.docker.com/products/docker-desktop/)
+- **Foundry** - [Installation Guide](https://book.getfoundry.sh/getting-started/installation)
+- **IPFS Desktop** - [Download](https://ipfs.io/install/)
 
-# Or run the agent backend directly
+### Installation
+
+1. **Clone the Repository**
+   ```powershell
+   git clone https://github.com/pandacea/pandacea-protocol.git
+   cd pandacea-protocol
+   ```
+
+2. **Install Agent Backend Dependencies**
+   ```powershell
+   cd agent-backend
+   go mod tidy
+   cd ..
+   ```
+
+3. **Install Builder SDK Dependencies**
+   ```powershell
+   cd builder-sdk
+   poetry install
+   cd ..
+   ```
+
+### Running the Environment
+
+1. **Start IPFS Desktop**
+   - Launch IPFS Desktop application
+   - Ensure it's running on the default port (5001)
+
+2. **Build PySyft Docker Container**
+   ```powershell
+   cd agent-backend
+   .\build_pysyft_image.ps1
+   cd ..
+   ```
+
+3. **Start Local Blockchain Node**
+   ```powershell
+   anvil --host 0.0.0.0 --port 8545
+   ```
+
+4. **Deploy Smart Contracts**
+   ```powershell
+   cd contracts
+   forge build
+   forge script scripts/deploy.sol --rpc-url http://localhost:8545 --broadcast
+   cd ..
+   ```
+
+5. **Start Go Agent Backend**
+   ```powershell
+   cd agent-backend
+   go run cmd/agent/main.go
+   ```
+
+6. **Test the SDK**
+   ```powershell
+   cd builder-sdk
+   python examples/basic_usage.py
+   ```
+
+## Running the Tests
+
+### Unit Tests
+
+**Go Agent Backend:**
+```powershell
 cd agent-backend
-make run
+go test ./...
 ```
 
-### 4. Test the SDK
-```bash
-# Run the basic usage example
+**Python SDK:**
+```powershell
 cd builder-sdk
-python examples/basic_usage.py
+poetry run pytest tests/
 ```
 
-### 5. Verify Everything Works
-```bash
-# Run integration tests
+### Integration Tests
+
+**Full Integration Test Suite:**
+```powershell
 cd integration
-python -m pytest test_integration.py -v
+python test_dispute_system.py
+python test_federated_learning.py
+python test_onchain_interaction.py
 ```
 
-## Project Verification
+**Differentiated Dispute Stakes Tests:**
+```powershell
+.\test_differentiated_stakes.ps1
+```
 
-The project includes comprehensive verification scripts to ensure all components are working correctly:
+### Security Scans
 
-- **Smart Contracts**: `contracts/verify_contracts.py`
-- **Agent Backend**: `agent-backend/verify_implementation.py`
-- **Builder SDK**: `builder-sdk/verify_sdk.py`
-
-For detailed verification results, see [VERIFICATION.md](VERIFICATION.md).
-
-## 📚 Project Documentation
-
-All detailed technical, strategic, and planning documents are organized in the `/docs` directory for easy access and reference. This includes comprehensive documentation covering every aspect of the Pandacea Protocol.
-
-### Key Documents
-
-- **[Technical Whitepaper](docs/Pandacea%20Technical%20Whitepaper%20(v4.0).md)** - Comprehensive technical overview and protocol design
-- **[System Design Document (SDD)](docs/Pandacea%20Protocol%20-%20System%20Design%20Document%20(SDD)%20(v1.2).md)** - Detailed system architecture and implementation specifications
-- **[Comprehensive Roadmap](docs/Pandacea%20Protocol_%20Comprehensive%20Roadmap%20(v3.0).md)** - Complete development roadmap and technical plan for future sprints
-- **[Engineering Handbook](docs/Pandacea%20Protocol%20-%20System%20Design%20Document%20(SDD)%20(v1.2).md)** - Development standards and best practices
-- **[API Specification](docs/Pandacea%20Protocol%20-%20System%20Design%20Document%20(SDD)%20(v1.2).md)** - Complete API documentation and interface specifications
-
-## Technology Stack
-
-- **Smart Contracts**: Solidity with Foundry for testing
-- **Agent Backend**: Go with libp2p for P2P networking
-- **Builder SDK**: Python with Poetry and Pytest
-- **Blockchain**: Polygon Mumbai testnet
-- **Development**: Docker Compose for local environment
-
-## Security & Privacy
-
-- **Structured Logging**: No PII in logs, only event types and metadata
-- **Environment Variables**: All secrets read from environment
-- **Decimal Precision**: Currency calculations use high-precision decimal library
-- **Input Validation**: Strict schema validation for all API requests
+**Local Security Validation:**
+```powershell
+.\test_security_scanning.ps1
+```
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [Pandacea Protocol - System Design Document (SDD) (v1.2).md](docs/Pandacea%20Protocol%20-%20System%20Design%20Document%20(SDD)%20(v1.2).md) for detailed technical specifications.
+We welcome contributions from the community! The Pandacea Protocol is built on open standards and thrives through collaborative development.
+
+### Getting Started
+
+1. **Fork the Repository**: Create your own fork of the project
+2. **Create a Feature Branch**: `git checkout -b feature/amazing-feature`
+3. **Make Your Changes**: Follow our coding standards and testing requirements
+4. **Submit a Pull Request**: We'll review and merge your contributions
+
+### Development Guidelines
+
+- **Code Style**: Follow Go and Python best practices
+- **Testing**: Ensure all new features include comprehensive tests
+- **Documentation**: Update relevant documentation for any changes
+- **Security**: All contributions undergo security review
+
+For detailed guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md) and our [Engineering Handbook](docs/Pandacea%20Protocol%20-%20Engineering%20Handbook%20(v1).pdf).
+
+## Documentation
+
+### Technical Documentation
+- **[Technical Whitepaper](docs/Pandacea%20Protocol%20Technical%20Whitepaper%20v4.1.pdf)** - Comprehensive protocol overview
+- **[System Design Document](docs/Pandacea%20Protocol%20-%20System%20Design%20Document%20(SDD)%20v1.4.md)** - Detailed architecture specifications
+- **[API Specification](docs/Pandacea%20Protocol%20-%20API%20Specification%20(v1.1).pdf)** - Complete API documentation
+
+### Strategic Documentation
+- **[Go-to-Market Plan](docs/Pandacea%20Protocol%20Go-to-Market%20Plan%20v1.2.pdf)** - Market strategy and positioning
+- **[Comprehensive Roadmap](docs/Pandacea%20Protocol_%20Comprehensive%20Roadmap%20(v3.0).md)** - Development timeline and milestones
+
+### Implementation Guides
+- **[Differentiated Dispute Stakes](DIFFERENTIATED_DISPUTE_STAKES_IMPLEMENTATION.md)** - Economic security implementation
+- **[Security Implementation](SECURITY_IMPLEMENTATION.md)** - Security features and best practices
+- **[IPFS Integration](IPFS_INTEGRATION.md)** - Decentralized storage implementation
+
+## Technology Stack
+
+- **Smart Contracts**: Solidity with Foundry testing framework
+- **Agent Backend**: Go with libp2p for P2P networking
+- **Builder SDK**: Python with Poetry dependency management
+- **Blockchain**: Polygon PoS for settlement layer
+- **Storage**: IPFS for decentralized content addressing
+- **Privacy**: OpenMined PySyft for privacy-preserving computation
+- **Development**: Docker Compose for local environment orchestration
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+**Pandacea Protocol** - Building a human-centered data economy through decentralized infrastructure, privacy-preserving computation, and fair economic incentives.
+
+*For questions, support, or collaboration, please open an issue or reach out to our community.*
