@@ -18,16 +18,15 @@ jobs:
         fetch-depth: 0  # Full history for drift detection
     
     - name: Setup Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.23.8'
+        go-version-file: agent-backend/go.mod
         cache: true
     
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-        cache: 'pip'
     
     - name: Install syft
       run: |
@@ -40,9 +39,34 @@ jobs:
         $env:PATH += ";$env:APPDATA\Python\Scripts"
         poetry --version
     
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~\go\pkg\mod
+          ~\AppData\Local\go-build
+        key: ${{ runner.os }}-go-${{ hashFiles('agent-backend/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Cache Poetry dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~\AppData\Roaming\pypoetry
+          ~\AppData\Local\pypoetry
+        key: ${{ runner.os }}-poetry-${{ hashFiles('builder-sdk/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-poetry-
+    
+    - name: Download Go dependencies
+      working-directory: agent-backend
+      run: go mod download
+    
     - name: Run reproducibility verification
-      run: |
-        .\scripts\repro\verify_reproducibility.ps1
+      shell: pwsh
+      run: ./scripts/repro/verify_reproducibility.ps1
+      working-directory: ${{ github.workspace }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
