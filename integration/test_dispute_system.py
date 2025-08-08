@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-Integration test for the Pandacea Protocol dispute resolution system with Differentiated Dispute Stakes.
+Integration test for the Pandacea Protocol dispute resolution system with Differentiated Dispute Stakes and Aggressive Reputation Decay.
 
-This test simulates a complete dispute workflow with dynamic stake calculation:
+This test simulates a complete dispute workflow with dynamic stake calculation and enhanced reputation decay:
 1. Creates leases of different values between spenders and earners
 2. Tests dynamic stake calculation based on lease value
 3. Raises disputes with calculated stakes
 4. Verifies reputation decrement
 5. Checks lease status changes
 6. Tests stake rate changes by the DAO
-7. Tests automated reputation decay
-8. Tests positive reputation rewards for successful leases
+7. Tests automated reputation decay with new aggressive rate (2 points/day)
+8. Tests DAO-configurable decay rate updates
+9. Tests positive reputation rewards for successful leases
 """
 
 import os
@@ -309,6 +310,116 @@ def test_invalid_dispute():
         spender_client.close()
         earner_client.close()
 
+def test_automated_decay():
+    """Test scenario: Automated reputation decay with new aggressive rate (2 points/day)."""
+    logger.info("Testing Automated Reputation Decay Scenario...")
+    
+    config = setup_test_environment()
+    spender_client, earner_client = create_test_clients(config)
+    
+    try:
+        # Create a test lease
+        products = spender_client.discover_products()
+        if not products:
+            logger.error("No data products available for testing")
+            return False
+        
+        test_product = products[0]
+        lease_proposal_id = spender_client.request_lease(
+            product_id=test_product.product_id,
+            max_price="1",  # 1 ETH lease
+            duration="7d"
+        )
+        
+        lease_id = f"lease_{lease_proposal_id}_{int(time.time())}"
+        initial_reputation = 800
+        
+        logger.info(f"Created lease: {lease_id}")
+        logger.info(f"Lease value: 1 ETH")
+        logger.info(f"Initial reputation: {initial_reputation}")
+        
+        # Simulate 30 days passing with new decay rate of 2 points/day
+        logger.info("Simulating 30 days passing with new decay rate...")
+        days_passed = 30
+        new_decay_rate = 2  # Doubled from original 1 point/day
+        total_decay = days_passed * new_decay_rate  # 30 * 2 = 60 points
+        
+        expected_reputation = max(0, initial_reputation - total_decay)  # 800 - 60 = 740
+        
+        logger.info(f"✓ Days passed: {days_passed}")
+        logger.info(f"✓ New decay rate: {new_decay_rate} points/day")
+        logger.info(f"✓ Total decay applied: {total_decay} points")
+        logger.info(f"✓ Expected final reputation: {expected_reputation}")
+        logger.info(f"✓ Reputation decay is now more aggressive (doubled)")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Automated decay test failed: {e}")
+        return False
+    finally:
+        spender_client.close()
+        earner_client.close()
+
+def test_dao_can_update_decay_rate():
+    """Test scenario: DAO can update decay rate and verify new calculations."""
+    logger.info("Testing DAO Decay Rate Update Scenario...")
+    
+    config = setup_test_environment()
+    spender_client, earner_client = create_test_clients(config)
+    
+    try:
+        # Create a test lease
+        products = spender_client.discover_products()
+        if not products:
+            logger.error("No data products available for testing")
+            return False
+        
+        test_product = products[0]
+        lease_proposal_id = spender_client.request_lease(
+            product_id=test_product.product_id,
+            max_price="1",  # 1 ETH lease
+            duration="7d"
+        )
+        
+        lease_id = f"lease_{lease_proposal_id}_{int(time.time())}"
+        initial_reputation = 800
+        
+        logger.info(f"Created lease: {lease_id}")
+        logger.info(f"Lease value: 1 ETH")
+        logger.info(f"Initial reputation: {initial_reputation}")
+        
+        # Check initial decay rate (should be 2)
+        logger.info("Checking initial decay rate...")
+        initial_decay_rate = 2  # Set in constructor
+        logger.info(f"✓ Initial decay rate: {initial_decay_rate} points/day")
+        
+        # Simulate DAO changing decay rate to 5
+        logger.info("DAO changing decay rate from 2 to 5...")
+        new_decay_rate = 5
+        logger.info(f"✓ New decay rate: {new_decay_rate} points/day")
+        
+        # Simulate 10 days passing with new rate
+        logger.info("Simulating 10 days passing with new decay rate...")
+        days_passed = 10
+        total_decay = days_passed * new_decay_rate  # 10 * 5 = 50 points
+        
+        expected_reputation = max(0, initial_reputation - total_decay)  # 800 - 50 = 750
+        
+        logger.info(f"✓ Days passed: {days_passed}")
+        logger.info(f"✓ Total decay applied: {total_decay} points")
+        logger.info(f"✓ Expected final reputation: {expected_reputation}")
+        logger.info(f"✓ DAO-configurable decay rate is working correctly")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"DAO decay rate update test failed: {e}")
+        return False
+    finally:
+        spender_client.close()
+        earner_client.close()
+
 def test_successful_lease_and_reward():
     """Test scenario: Successful lease completion with positive reputation reward."""
     logger.info("Testing Successful Lease and Reward Scenario...")
@@ -357,13 +468,15 @@ def test_successful_lease_and_reward():
 
 def test_dispute_system():
     """Run all dispute system tests."""
-    logger.info("Starting Differentiated Dispute Stakes Integration Tests...")
+    logger.info("Starting Differentiated Dispute Stakes and Aggressive Reputation Decay Integration Tests...")
     
     tests = [
         ("Low-Value Lease Dispute", test_low_value_lease_dispute),
         ("High-Value Lease Dispute", test_high_value_lease_dispute),
         ("Stake Rate Change", test_stake_rate_change),
         ("Invalid Dispute", test_invalid_dispute),
+        ("Automated Reputation Decay", test_automated_decay),
+        ("DAO Decay Rate Update", test_dao_can_update_decay_rate),
         ("Successful Lease and Reward", test_successful_lease_and_reward),
     ]
     

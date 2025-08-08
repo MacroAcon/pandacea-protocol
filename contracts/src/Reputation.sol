@@ -15,6 +15,7 @@ contract Reputation is Ownable, ReentrancyGuard {
     event ReputationUpdated(address indexed earner, uint256 oldScore, uint256 newScore, string reason);
     event DisputeRaised(address indexed spender, address indexed earner, uint256 leaseId, string reason);
     event ReputationDecay(address indexed earner, uint256 oldScore, uint256 newScore);
+    event ReputationDecayRateUpdated(uint256 oldRate, uint256 newRate);
     
     // Structs
     struct ReputationData {
@@ -31,7 +32,7 @@ contract Reputation is Ownable, ReentrancyGuard {
     
     uint256 public constant MAX_REPUTATION = 1000;
     uint256 public constant MIN_REPUTATION = 0;
-    uint256 public constant REPUTATION_DECAY_RATE = 1; // 1 point per day
+    uint256 public reputationDecayRate; // Configurable decay rate (points per day)
     uint256 public constant DISPUTE_COOLDOWN = 7 days; // Cooldown between disputes
     
     uint256 public disputeCounter;
@@ -64,6 +65,18 @@ contract Reputation is Ownable, ReentrancyGuard {
     
     constructor() {
         disputeCounter = 0;
+        reputationDecayRate = 2; // Initialize to 2 points per day (doubled from original)
+    }
+    
+    /**
+     * @dev Set the reputation decay rate (only owner/DAO)
+     * @param newRate New decay rate in points per day
+     */
+    function setReputationDecayRate(uint256 newRate) external onlyOwner {
+        require(newRate > 0 && newRate <= 10, "Reputation: Decay rate must be between 1 and 10");
+        uint256 oldRate = reputationDecayRate;
+        reputationDecayRate = newRate;
+        emit ReputationDecayRateUpdated(oldRate, newRate);
     }
     
     /**
@@ -149,7 +162,7 @@ contract Reputation is Ownable, ReentrancyGuard {
             return data.score;
         }
         
-        uint256 decayAmount = daysPassed * REPUTATION_DECAY_RATE;
+        uint256 decayAmount = daysPassed * reputationDecayRate;
         if (decayAmount >= data.score) {
             return 0;
         } else {
