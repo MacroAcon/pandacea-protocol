@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Artifact",
+  "type": "object",
+  "required": ["job_id", "model", "epsilon", "dp", "hash", "created_at"],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "description": "Unique identifier for the training job"
+    },
+    "model": {
+      "type": "string",
+      "description": "Base64 encoded model weights or model artifact path"
+    },
+    "epsilon": {
+      "type": "number",
+      "description": "Total privacy budget consumed (epsilon)",
+      "minimum": 0
+    },
+    "accuracy": {
+      "type": "number",
+      "description": "Model accuracy on test set",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "n": {
+      "type": "integer",
+      "description": "Number of training samples used",
+      "minimum": 1
+    },
+    "dp": {
+      "type": "object",
+      "required": ["enabled", "epsilon", "clip", "noise_multiplier"],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether differential privacy was enabled"
+        },
+        "epsilon": {
+          "type": "number",
+          "description": "Privacy budget used for this training run",
+          "minimum": 0
+        },
+        "clip": {
+          "type": "number",
+          "description": "Gradient clipping norm used",
+          "minimum": 0
+        },
+        "noise_multiplier": {
+          "type": "number",
+          "description": "Noise multiplier for DP-SGD",
+          "minimum": 0
+        },
+        "delta": {
+          "type": "number",
+          "description": "Privacy parameter delta",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "hash": {
+      "type": "string",
+      "description": "SHA-256 hash of the model artifact for integrity verification"
+    },
+    "seed": {
+      "type": "integer",
+      "description": "Random seed used for reproducibility"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the artifact was created"
+    },
+    "dataset": {
+      "type": "string",
+      "description": "Identifier for the dataset used in training"
+    },
+    "task": {
+      "type": "string",
+      "description": "Type of machine learning task performed"
+    },
+    "training_params": {
+      "type": "object",
+      "description": "Additional training parameters",
+      "properties": {
+        "epochs": {
+          "type": "integer",
+          "description": "Number of training epochs",
+          "minimum": 1
+        },
+        "batch_size": {
+          "type": "integer",
+          "description": "Training batch size",
+          "minimum": 1
+        },
+        "learning_rate": {
+          "type": "number",
+          "description": "Learning rate used",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

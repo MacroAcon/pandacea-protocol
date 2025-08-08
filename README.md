@@ -39,6 +39,7 @@ The Pandacea Protocol is a decentralized infrastructure layer designed to facili
 - **CI/CD Pipeline**: Integration with gosec and Bandit for proactive security scanning
 - **Structured Logging**: Privacy-preserving event logging with no PII exposure
 - **Input Validation**: Strict schema validation for all API requests
+- **Abuse Controls**: Rate limiting, quotas, backpressure, and authentication challenges
 
 ## System Architecture
 
@@ -57,6 +58,37 @@ The Pandacea Protocol is a decentralized infrastructure layer designed to facili
 - **LeaseAgreement.sol**: Core smart contract for data lease management
 - **Reputation.sol**: Trust and reputation scoring system
 - **PGT.sol**: Protocol's native token for economic incentives
+
+## Abuse Controls
+
+The Pandacea Protocol implements comprehensive abuse prevention mechanisms to ensure fair and secure operation:
+
+### **Rate Limiting**
+- **IP-based**: 5 requests per second per IP address
+- **Identity-based**: 2 requests per second per authenticated identity
+- **Burst allowance**: 10 requests for handling legitimate traffic spikes
+
+### **Quotas & Concurrency**
+- **Concurrent jobs**: Maximum 2 concurrent training jobs per identity
+- **Request size limits**: 10MB maximum request body size
+- **Header limits**: 8KB maximum header size
+
+### **Backpressure Management**
+- **CPU monitoring**: Triggers at 85% CPU usage
+- **Memory monitoring**: Triggers at 2GB memory usage
+- **Automatic throttling**: Reduces accepted RPS by 50% under high load
+
+### **Authentication & Security**
+- **Challenge-response**: Signed nonce challenges for sensitive routes
+- **Greylisting**: 10-minute greylist for IPs exceeding limits
+- **Temporary bans**: 30-minute bans for repeated violations
+
+### **Monitoring & Logging**
+- **Structured events**: All security decisions logged with timestamps
+- **Real-time alerts**: Immediate notification of abuse attempts
+- **Audit trail**: Complete history for compliance and debugging
+
+For detailed configuration and testing, see [Security Documentation](docs/security/agent_abuse_controls.md) and [Load Testing Guide](docs/windows_security_loadtest.md).
 
 ## Quick Start (Windows)
 
@@ -132,6 +164,29 @@ Install the following tools on your Windows machine:
    python examples/basic_usage.py
    ```
 
+## Run the Demo
+
+### Quick Demo (Mock Mode)
+```powershell
+# Run the complete end-to-end demo with mock differential privacy
+make demo
+```
+
+### Windows Users
+For detailed Windows setup instructions, see the [Windows Quickstart Guide](docs/windows_quickstart.md).
+
+### Real PySyft Demo (Docker Required)
+```powershell
+# Build and start PySyft worker container
+make pysyft-up
+
+# Set environment variable for Docker execution
+setx USE_DOCKER 1
+
+# Close and reopen PowerShell, then run:
+make demo-real-docker
+```
+
 ## Running the Tests
 
 ### Unit Tests
@@ -169,6 +224,25 @@ python test_onchain_interaction.py
 ```powershell
 .\test_security_scanning.ps1
 ```
+
+### Abuse Controls
+
+The agent backend implements comprehensive abuse controls to prevent DoS attacks and ensure fair resource usage:
+
+**Run Security Tests:**
+```powershell
+make agent-security-test
+```
+
+**Key Security Features:**
+- **Rate Limiting**: Token bucket algorithm with IP and identity-based limits
+- **Authentication**: Challenge-response flow with cryptographic signatures
+- **Concurrency Quotas**: Limits on simultaneous training jobs per identity
+- **Backpressure**: Graceful degradation under high system load
+- **Request Size Limits**: Protection against large payload attacks
+- **Greylisting/Banning**: Temporary restrictions for violations
+
+For detailed security documentation, see [Agent Abuse Controls](docs/security/agent_abuse_controls.md).
 
 ## Contributing
 

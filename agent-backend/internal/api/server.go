@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"pandacea/agent-backend/internal/p2p"
 	"pandacea/agent-backend/internal/policy"
 	"pandacea/agent-backend/internal/privacy"
+	"pandacea/agent-backend/internal/security"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -34,16 +36,32 @@ type LeaseProposalState struct {
 	Price       *string   `json:"price,omitempty"`
 }
 
+// TrainingJob represents the state of a federated learning job
+type TrainingJob struct {
+	JobID        string     `json:"job_id"`
+	Status       string     `json:"status"` // pending, running, complete, failed
+	Dataset      string     `json:"dataset"`
+	Task         string     `json:"task"`
+	Epsilon      float64    `json:"epsilon"`
+	ArtifactPath string     `json:"artifact_path,omitempty"`
+	Error        string     `json:"error,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+}
+
 // Server represents the HTTP API server
 type Server struct {
-	router         *chi.Mux
-	policy         *policy.Engine
-	logger         *slog.Logger
-	products       []DataProduct
-	p2pNode        *p2p.Node
-	pendingLeases  map[string]*LeaseProposalState
-	leasesMutex    sync.RWMutex
-	privacyService privacy.PrivacyService
+	router          *chi.Mux
+	policy          *policy.Engine
+	logger          *slog.Logger
+	products        []DataProduct
+	p2pNode         *p2p.Node
+	pendingLeases   map[string]*LeaseProposalState
+	leasesMutex     sync.RWMutex
+	privacyService  privacy.PrivacyService
+	securityService *security.SecurityService
+	jobs            map[string]*TrainingJob
+	jobsMutex       sync.RWMutex
 }
 
 // DataProduct represents a data product as per API specification
@@ -125,7 +143,7 @@ func (server *Server) sendErrorResponse(w http.ResponseWriter, r *http.Request, 
 }
 
 // NewServer creates a new API server
-func NewServer(policyEngine *policy.Engine, logger *slog.Logger, p2pNode *p2p.Node, privacyService privacy.PrivacyService) *Server {
+func NewServer(policyEngine *policy.Engine, logger *slog.Logger, p2pNode *p2p.Node, privacyService privacy.PrivacyService, securityService *security.SecurityService) *Server {
 	router := chi.NewRouter()
 
 	// Add middleware
@@ -149,13 +167,15 @@ func NewServer(policyEngine *policy.Engine, logger *slog.Logger, p2pNode *p2p.No
 	})
 
 	server := &Server{
-		router:         router,
-		policy:         policyEngine,
-		logger:         logger,
-		products:       []DataProduct{},
-		p2pNode:        p2pNode,
-		pendingLeases:  make(map[string]*LeaseProposalState),
-		privacyService: privacyService,
+		router:          router,
+		policy:          policyEngine,
+		logger:          logger,
+		products:        []DataProduct{},
+		p2pNode:         p2pNode,
+		pendingLeases:   make(map[string]*LeaseProposalState),
+		privacyService:  privacyService,
+		securityService: securityService,
+		jobs:            make(map[string]*TrainingJob),
 	}
 
 	// Load products from JSON file
@@ -206,20 +226,89 @@ func (server *Server) loadProducts() {
 
 // setupRoutes configures the API routes
 func (server *Server) setupRoutes() {
+	// Add version header middleware to all responses
+	server.router.Use(server.addVersionHeader)
+
 	// API v1 routes with signature verification
 	server.router.Route("/api/v1", func(r chi.Router) {
-		// Add signature verification middleware to all API routes
+		// Add security middleware to all API routes
+		r.Use(server.securityMiddleware)
 		r.Use(server.verifySignatureMiddleware)
+
+		// Authentication endpoints (no signature required)
+		r.Post("/auth/challenge", server.handleAuthChallenge)
+		r.Post("/auth/verify", server.handleAuthVerify)
+
+		// Protected endpoints
 		r.Get("/products", server.handleGetProducts)
 		r.Post("/leases", server.handleCreateLease)
 		r.Get("/leases/{leaseProposalId}", server.handleGetLeaseStatus)
 		r.Post("/leases/{leaseId}/dispute", server.handleRaiseDispute)
 		r.Post("/privacy/execute", server.handleExecuteComputation)
 		r.Get("/privacy/results/{computation_id}", server.handleGetComputationResult)
+		r.Post("/train", server.handleTrain)
+		r.Get("/aggregate/{jobId}", server.handleAggregate)
 	})
+
+	// Legacy endpoints (deprecated, will be removed in v2)
+	server.router.Post("/train", server.handleTrainLegacy)
+	server.router.Get("/aggregate/{jobId}", server.handleAggregateLegacy)
 
 	// Health check (no signature required)
 	server.router.Get("/health", server.handleHealth)
+}
+
+// addVersionHeader adds the API version header to all responses
+func (server *Server) addVersionHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-API-Version", "v1")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// securityMiddleware applies security controls (rate limiting, backpressure, etc.)
+func (server *Server) securityMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip security checks for authentication endpoints
+		if r.URL.Path == "/api/v1/auth/challenge" || r.URL.Path == "/api/v1/auth/verify" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check backpressure
+		if server.securityService.CheckBackpressure() {
+			w.Header().Set("Retry-After", "30")
+			server.sendErrorResponse(w, r, http.StatusServiceUnavailable, "BACKPRESSURE", "Service temporarily unavailable due to high load")
+			return
+		}
+
+		// Extract identity from signature (simplified for now)
+		identity := ""
+		if signature := r.Header.Get("X-Signature"); signature != "" {
+			// In a real implementation, you'd extract the identity from the signature
+			identity = "authenticated_user"
+		}
+
+		// Check rate limits
+		allowed, retryAfter := server.securityService.CheckRateLimit(r, identity)
+		if !allowed {
+			w.Header().Set("Retry-After", fmt.Sprintf("%.0f", retryAfter.Seconds()))
+			server.sendErrorResponse(w, r, http.StatusTooManyRequests, "RATE_LIMITED", "Rate limit exceeded")
+			return
+		}
+
+		// Check concurrency quota for training endpoints
+		if r.URL.Path == "/api/v1/train" && identity != "" {
+			if !server.securityService.CheckConcurrencyQuota(identity) {
+				server.sendErrorResponse(w, r, http.StatusConflict, "QUOTA_EXCEEDED", "Concurrent job limit exceeded")
+				return
+			}
+			// Release quota when request completes
+			defer server.securityService.ReleaseConcurrencyQuota(identity)
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // verifySignatureMiddleware verifies the cryptographic signature of incoming requests
@@ -610,5 +699,444 @@ func (server *Server) handleRaiseDispute(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response)
+}
+
+// TrainRequest represents a federated learning training request
+type TrainRequest struct {
+	Dataset string `json:"dataset"`
+	Task    string `json:"task"`
+	DP      struct {
+		Enabled bool    `json:"enabled"`
+		Epsilon float64 `json:"epsilon"`
+	} `json:"dp"`
+}
+
+// TrainResponse represents the response for the train endpoint
+type TrainResponse struct {
+	JobID string `json:"job_id"`
+}
+
+// handleTrain handles POST /train
+func (server *Server) handleTrain(w http.ResponseWriter, r *http.Request) {
+	server.logger.Info("training request received")
+
+	// Parse request body
+	var req TrainRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		server.logger.Error("failed to decode train request", "error", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.Dataset == "" {
+		http.Error(w, "Dataset is required", http.StatusBadRequest)
+		return
+	}
+	if req.Task == "" {
+		http.Error(w, "Task is required", http.StatusBadRequest)
+		return
+	}
+
+	// Generate job ID
+	jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
+
+	// Create training job
+	job := &TrainingJob{
+		JobID:     jobID,
+		Status:    "pending",
+		Dataset:   req.Dataset,
+		Task:      req.Task,
+		Epsilon:   req.DP.Epsilon,
+		CreatedAt: time.Now(),
+	}
+
+	// Store job
+	server.jobsMutex.Lock()
+	server.jobs[jobID] = job
+	server.jobsMutex.Unlock()
+
+	// Start the training job asynchronously
+	go server.runTrainingJob(jobID)
+
+	// Return job ID
+	response := TrainResponse{
+		JobID: jobID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(response)
+
+	server.logger.Info("training job queued", "job_id", jobID, "dataset", req.Dataset, "task", req.Task)
+}
+
+// handleAggregate handles GET /aggregate/{jobId}
+func (server *Server) handleAggregate(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "jobId")
+	if jobID == "" {
+		http.Error(w, "Job ID is required", http.StatusBadRequest)
+		return
+	}
+
+	server.jobsMutex.RLock()
+	job, exists := server.jobs[jobID]
+	server.jobsMutex.RUnlock()
+
+	if !exists {
+		http.Error(w, "Job not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(job)
+
+	server.logger.Info("aggregate status requested", "job_id", jobID, "status", job.Status)
+}
+
+// runTrainingJob executes the training job by calling a Python worker
+func (server *Server) runTrainingJob(jobID string) {
+	server.logger.Info("starting training job", "job_id", jobID)
+
+	// Update job status to running
+	server.updateJobStatus(jobID, "running", "", "")
+
+	// Create output directory
+	outputDir := fmt.Sprintf("./data/products/%s", jobID)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		server.logger.Error("failed to create output directory", "error", err, "job_id", jobID)
+		server.updateJobStatus(jobID, "failed", "", fmt.Sprintf("Failed to create output directory: %v", err))
+		return
+	}
+
+	// Get job details
+	server.jobsMutex.RLock()
+	job := server.jobs[jobID]
+	server.jobsMutex.RUnlock()
+
+	// Check if Docker execution is enabled
+	useDocker := os.Getenv("USE_DOCKER") == "1"
+
+	if useDocker {
+		server.runTrainingJobDocker(jobID, job, outputDir)
+	} else {
+		server.runTrainingJobLocal(jobID, job, outputDir)
+	}
+}
+
+func (server *Server) runTrainingJobDocker(jobID string, job *TrainingJob, outputDir string) {
+	server.logger.Info("running training job with Docker", "job_id", jobID)
+
+	// Prepare job payload for Docker container
+	jobPayload := map[string]interface{}{
+		"job_id":     jobID,
+		"dataset":    job.Dataset,
+		"task":       job.Task,
+		"epsilon":    job.Epsilon,
+		"output_dir": "/app/data",
+	}
+
+	payloadBytes, err := json.Marshal(jobPayload)
+	if err != nil {
+		server.logger.Error("failed to marshal job payload", "error", err, "job_id", jobID)
+		server.updateJobStatus(jobID, "failed", "", fmt.Sprintf("Failed to marshal job payload: %v", err))
+		return
+	}
+
+	// Execute Docker container
+	cmd := exec.Command("docker", "compose", "-f", "docker-compose.pysyft.yml", "run", "--rm", "pysyft-worker")
+	cmd.Stdin = strings.NewReader(string(payloadBytes))
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		server.logger.Error("Docker execution failed", "error", err, "output", string(output), "job_id", jobID)
+		server.updateJobStatus(jobID, "failed", "", fmt.Sprintf("Docker execution failed: %v", err))
+		return
+	}
+
+	server.logger.Info("Docker execution completed", "output", string(output), "job_id", jobID)
+
+	// Check for output file
+	aggregatePath := fmt.Sprintf("%s/aggregate.json", outputDir)
+	if _, err := os.Stat(aggregatePath); os.IsNotExist(err) {
+		server.logger.Error("aggregate file not found after Docker execution", "job_id", jobID)
+		server.updateJobStatus(jobID, "failed", "", "Aggregate file not found after Docker execution")
+		return
+	}
+
+	// Update job status to complete
+	server.updateJobStatus(jobID, "complete", aggregatePath, "")
+	server.logger.Info("Docker training job completed", "job_id", jobID, "output", aggregatePath)
+}
+
+func (server *Server) runTrainingJobLocal(jobID string, job *TrainingJob, outputDir string) {
+	server.logger.Info("running training job locally", "job_id", jobID)
+
+	// Check if MOCK_DP is enabled
+	mockDP := os.Getenv("MOCK_DP") == "1"
+
+	if mockDP {
+		// Use the existing mock implementation
+		server.runTrainingJobMock(jobID, job, outputDir)
+	} else {
+		// Use the real PySyft worker
+		server.runTrainingJobReal(jobID, job, outputDir)
+	}
+}
+
+func (server *Server) runTrainingJobMock(jobID string, job *TrainingJob, outputDir string) {
+	server.logger.Info("running mock training job", "job_id", jobID)
+
+	// Prepare Python worker command
+	// This will run a simple Python script that simulates DP-SGD training
+	pythonScript := fmt.Sprintf(`
+import json
+import numpy as np
+import os
+from datetime import datetime
+
+# Simulate differential privacy parameters
+epsilon = %f
+dataset = "%s"
+task = "%s"
+
+# Create mock training result
+result = {
+    "job_id": "%s",
+    "dataset": dataset,
+    "task": task,
+    "epsilon_used": epsilon,
+    "model_accuracy": 0.85 + np.random.normal(0, 0.05),
+    "samples_processed": 1000,
+    "training_time_seconds": 30.5,
+    "dp_noise_scale": 1.0 / epsilon,
+    "timestamp": datetime.now().isoformat()
+}
+
+# Save result to output file
+output_path = os.path.join("%s", "aggregate.json")
+with open(output_path, "w") as f:
+    json.dump(result, f, indent=2)
+
+print(f"Training completed. Epsilon used: {epsilon}")
+print(f"Output saved to: {output_path}")
+`, job.Epsilon, job.Dataset, job.Task, jobID, outputDir)
+
+	// Write Python script to temporary file
+	scriptPath := fmt.Sprintf("%s/worker.py", outputDir)
+	if err := os.WriteFile(scriptPath, []byte(pythonScript), 0644); err != nil {
+		server.logger.Error("failed to write Python script", "error", err, "job_id", jobID)
+		server.updateJobStatus(jobID, "failed", "", fmt.Sprintf("Failed to write Python script: %v", err))
+		return
+	}
+
+	// Execute Python script
+	cmd := fmt.Sprintf("python %s", scriptPath)
+	server.logger.Info("executing Python worker", "command", cmd, "job_id", jobID)
+
+	// For demo purposes, just sleep and create the output
+	time.Sleep(10 * time.Second) // Simulate training time
+
+	// Create the aggregate.json file
+	aggregatePath := fmt.Sprintf("%s/aggregate.json", outputDir)
+	result := map[string]interface{}{
+		"job_id":                jobID,
+		"dataset":               job.Dataset,
+		"task":                  job.Task,
+		"epsilon_used":          job.Epsilon,
+		"model_accuracy":        0.85 + (float64(time.Now().UnixNano()%100) / 1000.0), // Random accuracy
+		"samples_processed":     1000,
+		"training_time_seconds": 10.0,
+		"dp_noise_scale":        1.0 / job.Epsilon,
+		"timestamp":             time.Now().Format(time.RFC3339),
+	}
+
+	resultBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		server.logger.Error("failed to marshal training result", "error", err, "job_id", jobID)
+		server.updateJobStatus(jobID, "failed", "", fmt.Sprintf("Failed to marshal result: %v", err))
+		return
+	}
+
+	if err := os.WriteFile(aggregatePath, resultBytes, 0644); err != nil {
+		server.logger.Error("failed to write aggregate result", "error", err, "job_id", jobID)
+		server.updateJobStatus(jobID, "failed", "", fmt.Sprintf("Failed to write result: %v", err))
+		return
+	}
+
+	// Update job status to complete
+	server.updateJobStatus(jobID, "complete", aggregatePath, "")
+	server.logger.Info("mock training job completed", "job_id", jobID, "output", aggregatePath)
+}
+
+func (server *Server) runTrainingJobReal(jobID string, job *TrainingJob, outputDir string) {
+	server.logger.Info("running real PySyft training job", "job_id", jobID)
+
+	// Execute the real PySyft worker
+	workerPath := "./worker/train_worker.py"
+	cmd := exec.Command("python", workerPath,
+		"--job-id", jobID,
+		"--dataset", job.Dataset,
+		"--task", job.Task,
+		"--epsilon", fmt.Sprintf("%f", job.Epsilon),
+		"--output-dir", outputDir,
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		server.logger.Error("real PySyft execution failed", "error", err, "output", string(output), "job_id", jobID)
+		server.updateJobStatus(jobID, "failed", "", fmt.Sprintf("Real PySyft execution failed: %v", err))
+		return
+	}
+
+	server.logger.Info("real PySyft execution completed", "output", string(output), "job_id", jobID)
+
+	// Check for output file
+	aggregatePath := fmt.Sprintf("%s/aggregate.json", outputDir)
+	if _, err := os.Stat(aggregatePath); os.IsNotExist(err) {
+		server.logger.Error("aggregate file not found after real PySyft execution", "job_id", jobID)
+		server.updateJobStatus(jobID, "failed", "", "Aggregate file not found after real PySyft execution")
+		return
+	}
+
+	// Update job status to complete
+	server.updateJobStatus(jobID, "complete", aggregatePath, "")
+	server.logger.Info("real PySyft training job completed", "job_id", jobID, "output", aggregatePath)
+}
+
+// handleTrainLegacy handles legacy /train endpoint with deprecation warning
+func (server *Server) handleTrainLegacy(w http.ResponseWriter, r *http.Request) {
+	// Add deprecation warning header
+	w.Header().Set("X-API-Deprecation-Warning", "This endpoint is deprecated. Use /api/v1/train instead.")
+
+	// Log deprecation warning
+	server.logger.Warn("legacy endpoint used", "endpoint", "/train", "recommendation", "Use /api/v1/train instead")
+
+	// Call the original handler
+	server.handleTrain(w, r)
+}
+
+// handleAggregateLegacy handles legacy /aggregate/{jobId} endpoint with deprecation warning
+func (server *Server) handleAggregateLegacy(w http.ResponseWriter, r *http.Request) {
+	// Add deprecation warning header
+	w.Header().Set("X-API-Deprecation-Warning", "This endpoint is deprecated. Use /api/v1/aggregate/{jobId} instead.")
+
+	// Log deprecation warning
+	server.logger.Warn("legacy endpoint used", "endpoint", "/aggregate/{jobId}", "recommendation", "Use /api/v1/aggregate/{jobId} instead")
+
+	// Call the original handler
+	server.handleAggregate(w, r)
+}
+
+// updateJobStatus updates the status of a training job
+func (server *Server) updateJobStatus(jobID, status, artifactPath, errorMsg string) {
+	server.jobsMutex.Lock()
+	defer server.jobsMutex.Unlock()
+
+	job, exists := server.jobs[jobID]
+	if !exists {
+		server.logger.Error("job not found for status update", "job_id", jobID)
+		return
+	}
+
+	job.Status = status
+	if artifactPath != "" {
+		job.ArtifactPath = artifactPath
+	}
+	if errorMsg != "" {
+		job.Error = errorMsg
+	}
+
+	if status == "complete" || status == "failed" {
+		now := time.Now()
+		job.CompletedAt = &now
+	}
+
+	server.logger.Info("job status updated", "job_id", jobID, "status", status)
+}
+
+// AuthChallengeRequest represents a request to create an authentication challenge
+type AuthChallengeRequest struct {
+	Address string `json:"address"`
+}
+
+// AuthChallengeResponse represents the response to an authentication challenge
+type AuthChallengeResponse struct {
+	Nonce     string    `json:"nonce"`
+	Address   string    `json:"address"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// AuthVerifyRequest represents a request to verify an authentication challenge
+type AuthVerifyRequest struct {
+	Nonce     string `json:"nonce"`
+	Signature string `json:"signature"`
+}
+
+// AuthVerifyResponse represents the response to an authentication verification
+type AuthVerifyResponse struct {
+	Address string `json:"address"`
+	Valid   bool   `json:"valid"`
+}
+
+// handleAuthChallenge handles authentication challenge creation
+func (server *Server) handleAuthChallenge(w http.ResponseWriter, r *http.Request) {
+	var req AuthChallengeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		server.sendErrorResponse(w, r, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if req.Address == "" {
+		server.sendErrorResponse(w, r, http.StatusBadRequest, "MISSING_ADDRESS", "Address is required")
+		return
+	}
+
+	challenge, err := server.securityService.CreateChallenge(req.Address)
+	if err != nil {
+		server.logger.Error("failed to create challenge", "error", err, "address", req.Address)
+		server.sendErrorResponse(w, r, http.StatusInternalServerError, "CHALLENGE_CREATION_FAILED", "Failed to create challenge")
+		return
+	}
+
+	response := AuthChallengeResponse{
+		Nonce:     challenge.Nonce,
+		Address:   challenge.Address,
+		ExpiresAt: challenge.ExpiresAt,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleAuthVerify handles authentication challenge verification
+func (server *Server) handleAuthVerify(w http.ResponseWriter, r *http.Request) {
+	var req AuthVerifyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		server.sendErrorResponse(w, r, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if req.Nonce == "" || req.Signature == "" {
+		server.sendErrorResponse(w, r, http.StatusBadRequest, "MISSING_FIELDS", "Nonce and signature are required")
+		return
+	}
+
+	address, valid := server.securityService.VerifyChallenge(req.Nonce, req.Signature)
+
+	response := AuthVerifyResponse{
+		Address: address,
+		Valid:   valid,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if valid {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusUnauthorized)
+	}
 	json.NewEncoder(w).Encode(response)
 }

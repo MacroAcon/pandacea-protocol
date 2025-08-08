@@ -1,0 +1,28 @@
+# Security Configuration for Pandacea Agent Backend
+# Controls for abuse prevention, rate limiting, and DoS protection
+
+rate_limits:
+  per_ip_rps: 5          # Requests per second per IP address
+  per_identity_rps: 2    # Requests per second per authenticated identity
+  burst: 10              # Burst allowance for rate limiting
+
+quotas:
+  concurrent_jobs_per_identity: 2  # Maximum concurrent training jobs per identity
+
+backpressure:
+  cpu_high_watermark: 85           # CPU usage percentage to trigger backpressure
+  mem_high_watermark_mb: 2048      # Memory usage in MB to trigger backpressure
+
+bans:
+  greylist_seconds: 600            # Duration to greylist IPs that exceed limits
+  temp_ban_seconds: 1800          # Duration to temporarily ban IPs for violations
+
+# Request size limits
+request_limits:
+  max_body_size_mb: 10            # Maximum request body size in MB
+  max_header_size_kb: 8           # Maximum header size in KB
+
+# Authentication settings
+auth:
+  challenge_timeout_seconds: 300   # Timeout for authentication challenges
+  nonce_length: 32                # Length of authentication nonces

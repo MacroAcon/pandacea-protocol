@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConsentManifest",
+  "type": "object",
+  "required": ["subject_id", "data_product_id", "terms", "hash"],
+  "properties": {
+    "subject_id": {
+      "type": "string",
+      "description": "Unique identifier for the data subject"
+    },
+    "data_product_id": {
+      "type": "string",
+      "description": "Unique identifier for the data product being accessed"
+    },
+    "terms": {
+      "type": "object",
+      "required": ["purpose", "retention", "revocation"],
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "description": "Purpose for which data is being used"
+        },
+        "retention": {
+          "type": "string",
+          "description": "How long the data will be retained"
+        },
+        "revocation": {
+          "type": "string",
+          "description": "How the subject can revoke consent"
+        },
+        "data_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Types of data being accessed"
+        },
+        "processing_methods": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Methods used to process the data"
+        },
+        "third_parties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Third parties with whom data may be shared"
+        }
+      }
+    },
+    "hash": {
+      "type": "string",
+      "description": "SHA-256 hash of the consent manifest for integrity verification"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when consent was given"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when consent expires (optional)"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "revoked", "expired"],
+      "description": "Current status of the consent"
+    },
+    "version": {
+      "type": "string",
+      "description": "Version of the consent manifest schema"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional metadata about the consent",
+      "properties": {
+        "ip_address": {
+          "type": "string",
+          "description": "IP address where consent was given"
+        },
+        "user_agent": {
+          "type": "string",
+          "description": "User agent string from the consent session"
+        },
+        "consent_method": {
+          "type": "string",
+          "description": "Method used to obtain consent (e.g., 'web_form', 'api')"
+        }
+      }
+    }
+  }
+}

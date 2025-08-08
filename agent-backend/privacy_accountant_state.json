@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "default_budget": 10.0,
+  "users": {
+    "demo_user": {
+      "budget": 10.0,
+      "consumed_epsilon": 1.0,
+      "jobs": [
+        {
+          "job_id": "mock_123",
+          "epsilon": 1.0,
+          "timestamp": "2025-08-08T01:59:13.025584",
+          "remaining_budget": 9.0
+        }
+      ]
+    }
+  },
+  "last_updated": "2025-08-08T01:59:13.025584"
+}

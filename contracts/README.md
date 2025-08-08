@@ -100,6 +100,16 @@ contracts/
    forge test
    ```
 
+## Windows Quickstart
+
+For Windows users, see the [Windows Quickstart Guide](../docs/windows_quickstart.md) for detailed setup instructions including:
+
+- Foundry installation on Windows
+- PowerShell commands
+- Docker setup for PySyft
+- Troubleshooting common issues
+   ```
+
 4. **Compile Contracts**:
    ```bash
    forge build

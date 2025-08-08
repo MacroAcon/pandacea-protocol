@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  pysyft-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.pysyft
+    environment:
+      MOCK_DP: "0"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./data:/app/data
+    stdin_open: true
+    tty: true
+    restart: unless-stopped

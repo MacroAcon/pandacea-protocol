@@ -16,6 +16,7 @@ import (
 	"pandacea/agent-backend/internal/p2p"
 	"pandacea/agent-backend/internal/policy"
 	"pandacea/agent-backend/internal/privacy"
+	"pandacea/agent-backend/internal/security"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -101,8 +102,16 @@ func main() {
 		logger.Warn("blockchain configuration not provided, privacy service disabled")
 	}
 
+	// Initialize security service
+	securityService, err := security.NewSecurityService("config/security.yaml", logger)
+	if err != nil {
+		logger.Error("failed to initialize security service", "error", err)
+		os.Exit(1)
+	}
+	defer securityService.Shutdown()
+
 	// Initialize API server
-	apiServer := api.NewServer(policyEngine, logger, p2pNode, privacyService)
+	apiServer := api.NewServer(policyEngine, logger, p2pNode, privacyService, securityService)
 
 	// Start API server in a goroutine
 	go func() {

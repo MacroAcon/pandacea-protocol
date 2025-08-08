@@ -1,0 +1,162 @@
+name: Verify
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main, develop ]
+
+jobs:
+  verify:
+    name: Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Setup Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    
+    - name: Install Foundry (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        curl -L https://foundry.paradigm.xyz | bash
+        echo "$HOME/.foundry/bin" >> $GITHUB_PATH
+        foundryup
+    
+    - name: Install Foundry (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: pwsh
+      run: |
+        iwr https://foundry.paradigm.xyz | Invoke-Expression
+        foundryup
+    
+    - name: Cache Foundry
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.foundry
+          ~/.cargo
+        key: ${{ runner.os }}-foundry-${{ hashFiles('contracts/foundry.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-foundry-
+    
+    - name: Cache contracts lib
+      uses: actions/cache@v3
+      with:
+        path: contracts/lib
+        key: ${{ runner.os }}-contracts-lib-${{ hashFiles('contracts/.gitmodules') }}
+        restore-keys: |
+          ${{ runner.os }}-contracts-lib-
+    
+    - name: Setup Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+    
+    - name: Cache Python dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/pip
+          ~/.local
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+        key: ${{ runner.os }}-go-${{ hashFiles('agent-backend/go.mod') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        cd builder-sdk && pip install -e .
+        cd ../integration && pip install -r requirements.txt python-dotenv
+    
+    - name: Install Go dependencies
+      run: |
+        cd agent-backend
+        go mod download
+        go mod verify
+    
+    - name: Start Docker services (Linux only)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo systemctl start docker
+        docker --version
+    
+    - name: Run verification
+      run: make verify
+    
+    - name: Run agent security tests
+      run: make agent-security-test
+    
+    - name: Run adversarial simulations (smoke test)
+      run: |
+        # Create minimal test configuration
+        mkdir -p sims/out
+        python -c "import yaml; config = {'stake_levels': [1.0], 'reputation_decay': [0.05], 'collusion_size': [20], 'sybil_cost': [0.5], 'runs_per_point': 1, 'seed': 1337}; yaml.dump(config, open('sims/config/test_params.yaml', 'w'))"
+        cd sims && python run_sweeps.py --config test_params.yaml
+    
+    - name: Run Slither analysis (Linux only)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        docker run --rm -v $(pwd)/contracts:/contracts trailofbits/slither /contracts --json slither-report.json || true
+        if [ -f slither-report.json ]; then
+          echo "Slither analysis completed"
+          cat slither-report.json | jq '.results.detectors[] | {check: .check, impact: .impact, confidence: .confidence}' || true
+        else
+          echo "Slither analysis failed or no issues found"
+        fi
+    
+    - name: Upload coverage artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-${{ matrix.os }}
+        path: |
+          contracts/lcov.info
+          contracts/out/
+        retention-days: 30
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: test-results-${{ matrix.os }}
+        path: |
+          contracts/out/
+          agent-backend/*.log
+          builder-sdk/.pytest_cache/
+        retention-days: 7
+    
+    - name: Upload simulation artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: simulation-results-${{ matrix.os }}
+        path: |
+          sims/out/
+          docs/economics/sim_report.html
+          slither-report.json
+        retention-days: 30

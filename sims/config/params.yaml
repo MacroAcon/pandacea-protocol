@@ -1,0 +1,111 @@
+# Adversarial Economic Simulation Parameters
+# Configuration for parameter sweeps and economic model testing
+
+# Stake levels to test (in PGT tokens)
+stake_levels: [0.5, 1.0, 2.0]
+
+# Reputation decay rates (per epoch)
+reputation_decay: [0.01, 0.05, 0.1]
+
+# Number of colluding actors in coordinated attacks
+collusion_size: [5, 20, 100]
+
+# Cost of creating Sybil identities (in PGT tokens)
+sybil_cost: [0.1, 0.5, 1.0]
+
+# Number of simulation runs per parameter combination
+runs_per_point: 20
+
+# Random seed for reproducibility
+seed: 1337
+
+# Economic parameters
+economic:
+  # Base reward for successful data contribution
+  base_reward: 1.0
+  
+  # Multiplier for reputation-based rewards
+  reputation_multiplier: 2.0
+  
+  # Cost of dispute resolution
+  dispute_cost: 0.1
+  
+  # Penalty for failed disputes
+  dispute_penalty: 0.5
+  
+  # Minimum stake required for participation
+  min_stake: 0.1
+  
+  # Maximum stake allowed per identity
+  max_stake: 10.0
+
+# Network parameters
+network:
+  # Total number of agents in simulation
+  total_agents: 1000
+  
+  # Percentage of honest agents
+  honest_percentage: 0.8
+  
+  # Percentage of colluding agents
+  colluder_percentage: 0.15
+  
+  # Percentage of griefing agents
+  griefer_percentage: 0.03
+  
+  # Percentage of hoarding agents
+  hoarder_percentage: 0.02
+
+# Simulation parameters
+simulation:
+  # Number of epochs to simulate
+  epochs: 100
+  
+  # Transactions per epoch
+  transactions_per_epoch: 50
+  
+  # Warm-up epochs (excluded from analysis)
+  warmup_epochs: 10
+  
+  # Convergence threshold for reputation
+  convergence_threshold: 0.01
+  
+  # Maximum iterations for convergence
+  max_iterations: 1000
+
+# Attack parameters
+attacks:
+  # Probability of collusion detection
+  collusion_detection_prob: 0.3
+  
+  # Cost multiplier for detected collusion
+  collusion_penalty_multiplier: 3.0
+  
+  # Effectiveness of griefing attacks
+  griefing_effectiveness: 0.2
+  
+  # Cost of griefing attacks
+  griefing_cost: 0.5
+  
+  # Hoarding efficiency (how much influence gained)
+  hoarding_efficiency: 0.8
+  
+  # Cost of hoarding behavior
+  hoarding_cost: 1.0
+
+# Output configuration
+output:
+  # Directory for simulation results
+  results_dir: "sims/out"
+  
+  # Directory for plots and visualizations
+  plots_dir: "docs/economics/assets"
+  
+  # Save detailed logs
+  save_logs: true
+  
+  # Save intermediate results
+  save_intermediate: false
+  
+  # Compression level for output files
+  compression: 9
