@@ -1,7 +1,7 @@
 # Pandacea Protocol Demo Makefile
 # Provides an end-to-end demo of the protocol
 
-.PHONY: demo demo-setup demo-deploy demo-run demo-cleanup help contracts-test contracts-coverage verify pysyft-build pysyft-up demo-real-docker agent-security-test sims-run sims-report
+.PHONY: demo demo-setup demo-deploy demo-run demo-cleanup help contracts-test contracts-coverage verify pysyft-build pysyft-up demo-real-docker agent-security-test sims-run sims-report repro-build repro-verify sbom chaos-one chaos-test
 
 # Variables
 ANVIL_PID_FILE := .anvil.pid
@@ -27,6 +27,17 @@ help:
 	@echo "  pysyft-build      - Build PySyft Docker image"
 	@echo "  pysyft-up         - Start PySyft worker container"
 	@echo "  demo-real-docker  - Run demo with real PySyft via Docker"
+	@echo "  obs-up          - Start OpenTelemetry collector, Prometheus, Grafana"
+	@echo "  obs-down        - Stop observability stack"
+	@echo ""
+	@echo "Chaos Engineering Commands:"
+	@echo "  chaos-one         - Run a single chaos scenario (set SCENARIO=?)"
+	@echo "  chaos-test        - Run a tiny subset of chaos scenarios serially"
+	@echo ""
+	@echo "Reproducible Build Commands:"
+	@echo "  repro-build     - Build reproducible artifacts (Go, Python, containers)"
+	@echo "  repro-verify    - Verify reproducibility by building twice and comparing"
+	@echo "  sbom            - Generate SBOMs for all components"
 
 # Complete demo flow
 demo: demo-setup demo-deploy demo-run demo-cleanup
@@ -91,6 +102,32 @@ pysyft-up:
 demo-real-docker:
 	@echo "🎯 Running demo with real PySyft via Docker..."
 	USE_DOCKER=1 make demo
+
+# Observability stack
+obs-up:
+	@echo "📈 Starting observability stack..."
+	docker compose up -d otel-collector prometheus grafana
+	@echo "✅ Observability available: Grafana http://localhost:3000, Prometheus http://localhost:9091"
+
+obs-down:
+	@echo "🛑 Stopping observability stack..."
+	docker compose stop otel-collector prometheus grafana
+
+# Chaos Engineering Commands
+chaos-one:
+	@echo "🎲 Running chaos scenario: $(or $(SCENARIO),evm_rpc_flap)"
+	@if [ -z "$(SCENARIO)" ]; then \
+		echo "No SCENARIO specified, using default: evm_rpc_flap"; \
+		cd integration/chaos && python run_chaos.py --scenario evm_rpc_flap; \
+	else \
+		cd integration/chaos && python run_chaos.py --scenario $(SCENARIO); \
+	fi
+
+chaos-test:
+	@echo "🧪 Running chaos test suite..."
+	@echo "Testing EVM RPC flap scenario..."
+	cd integration/chaos && python run_chaos.py --scenario evm_rpc_flap
+	@echo "✅ Chaos test suite completed"
 
 # Deploy contracts and start services
 demo-deploy:
@@ -178,3 +215,47 @@ demo-status:
 	else \
 		echo "   ❌ Environment file: Not found"; \
 	fi
+
+# Reproducible build targets
+repro-build: repro-build-go repro-build-python repro-build-container
+
+repro-build-go:
+	@echo "🔧 Building reproducible Go binary..."
+	@mkdir -p artifacts/bin artifacts/sbom
+	cd agent-backend && \
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+	go build -trimpath -buildvcs=false -ldflags="-s -w" \
+	-o ../artifacts/bin/agent-backend ./cmd/agent
+	@echo "📋 Generating Go SBOM..."
+	cd agent-backend && syft . -o spdx-json -o ../artifacts/sbom/agent-backend.spdx.json
+	@echo "✅ Go binary and SBOM generated in artifacts/"
+
+repro-build-python:
+	@echo "🐍 Building reproducible Python wheel..."
+	@mkdir -p artifacts/dist artifacts/sbom
+	cd builder-sdk && \
+	poetry install --no-dev --no-interaction && \
+	PYTHONHASHSEED=0 SOURCE_DATE_EPOCH=0 poetry build --format wheel --no-interaction && \
+	cp dist/*.whl ../artifacts/dist/
+	@echo "📋 Generating Python SBOM..."
+	cd builder-sdk && syft . -o spdx-json -o ../artifacts/sbom/pandacea-sdk.spdx.json
+	@echo "✅ Python wheel and SBOM generated in artifacts/"
+
+repro-build-container:
+	@echo "🐳 Building reproducible container..."
+	@mkdir -p artifacts/sbom
+	docker build -f agent-backend/Dockerfile -t pandacea/agent-backend:repro agent-backend
+	@echo "📋 Generating container SBOM..."
+	syft pandacea/agent-backend:repro -o spdx-json -o artifacts/sbom/agent-backend-container.spdx.json
+	@echo "✅ Container and SBOM generated in artifacts/"
+
+repro-verify:
+	@echo "🔍 Verifying reproducible builds..."
+	powershell -ExecutionPolicy Bypass -File scripts/repro/verify_reproducibility.ps1
+
+sbom:
+	@echo "📋 Generating SBOMs..."
+	@mkdir -p artifacts/sbom
+	cd agent-backend && syft . -o spdx-json -o ../artifacts/sbom/agent-backend.spdx.json
+	cd builder-sdk && syft . -o spdx-json -o ../artifacts/sbom/pandacea-sdk.spdx.json
+	@echo "✅ SBOMs generated in artifacts/sbom/"

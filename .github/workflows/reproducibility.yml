@@ -1,0 +1,107 @@
+name: Reproducibility Checks & SBOM Drift
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  reproducibility-checks:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for drift detection
+    
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23.8'
+        cache: true
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install syft
+      run: |
+        choco install syft -y
+        syft --version
+    
+    - name: Install Poetry
+      run: |
+        (Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
+        $env:PATH += ";$env:APPDATA\Python\Scripts"
+        poetry --version
+    
+    - name: Run reproducibility verification
+      run: |
+        .\scripts\repro\verify_reproducibility.ps1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Upload SBOM artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: sbom-artifacts
+        path: |
+          artifacts/sbom/
+          artifacts/bin/
+          artifacts/dist/
+        retention-days: 30
+
+  sbom-drift-check:
+    runs-on: windows-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup syft
+      run: choco install syft -y
+    
+    - name: Download previous SBOMs
+      uses: actions/download-artifact@v4
+      with:
+        name: sbom-artifacts
+        path: previous-sbom/
+    
+    - name: Generate current SBOMs
+      run: |
+        mkdir -p artifacts/sbom
+        # Generate Go SBOM
+        cd agent-backend
+        syft . -o spdx-json -o artifacts/sbom/agent-backend.spdx.json
+        cd ..
+        
+        # Generate Python SBOM
+        cd builder-sdk
+        syft . -o spdx-json -o artifacts/sbom/pandacea-sdk.spdx.json
+        cd ..
+    
+    - name: Compare SBOMs for drift
+      run: |
+        if (Test-Path "previous-sbom/artifacts/sbom/") {
+          Write-Host "Comparing SBOMs for drift..."
+          # Simple diff check - in production, use proper SBOM diff tools
+          $current = Get-Content "artifacts/sbom/agent-backend.spdx.json" | ConvertFrom-Json
+          $previous = Get-Content "previous-sbom/artifacts/sbom/agent-backend.spdx.json" | ConvertFrom-Json
+          
+          if ($current.packages.Count -ne $previous.packages.Count) {
+            Write-Host "## SBOM Drift Detected" >> $env:GITHUB_STEP_SUMMARY
+            Write-Host "Package count changed: $($previous.packages.Count) -> $($current.packages.Count)" >> $env:GITHUB_STEP_SUMMARY
+            exit 1
+          }
+        } else {
+          Write-Host "No previous SBOMs found for comparison"
+        }

@@ -96,8 +96,28 @@ For detailed configuration and testing, see [Security Documentation](docs/securi
 
 Install the following tools on your Windows machine:
 
-- **Go** (1.21+) - [Download](https://golang.org/dl/)
-- **Python** (3.9+) - [Download](https://www.python.org/downloads/)
+- **Go** (1.24.2+) - [Download](https://golang.org/dl/)
+- **Python** (3.11+) - [Download](https://www.python.org/downloads/)
+- **Poetry** - [Installation Guide](https://python-poetry.org/docs/#installation)
+- **Docker** - [Download](https://www.docker.com/products/docker-desktop/)
+- **Syft** - [Installation Guide](https://github.com/anchore/syft#installation)
+
+### Reproducible Builds
+
+The Pandacea Protocol supports reproducible builds for security and compliance:
+
+```bash
+# Build all reproducible artifacts (Go, Python, containers)
+make repro-build
+
+# Verify reproducibility by building twice and comparing
+make repro-verify
+
+# Generate Software Bill of Materials (SBOM)
+make sbom
+```
+
+For detailed information, see [Reproducible Builds Documentation](docs/reproducible-builds.md).
 - **Poetry** - [Installation Guide](https://python-poetry.org/docs/#installation)
 - **Node.js** (18+) - [Download](https://nodejs.org/)
 - **Docker Desktop** - [Download](https://www.docker.com/products/docker-desktop/)

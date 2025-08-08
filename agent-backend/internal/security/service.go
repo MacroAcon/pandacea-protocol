@@ -6,13 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
 	"gopkg.in/yaml.v3"
 )
 
@@ -30,6 +32,9 @@ type SecurityConfig struct {
 		CPUHighWatermark int `yaml:"cpu_high_watermark"`
 		MemHighWatermark int `yaml:"mem_high_watermark_mb"`
 	} `yaml:"backpressure"`
+	Queue struct {
+		MaxSize int `yaml:"max_size"`
+	} `yaml:"queue"`
 	Bans struct {
 		GreylistSeconds int `yaml:"greylist_seconds"`
 		TempBanSeconds  int `yaml:"temp_ban_seconds"`
@@ -90,6 +95,52 @@ type Challenge struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// BoundedRequestQueue implements a bounded request queue for load shedding
+type BoundedRequestQueue struct {
+	queue    chan struct{}
+	capacity int
+	logger   *slog.Logger
+}
+
+// NewBoundedRequestQueue creates a new bounded request queue
+func NewBoundedRequestQueue(capacity int, logger *slog.Logger) *BoundedRequestQueue {
+	return &BoundedRequestQueue{
+		queue:    make(chan struct{}, capacity),
+		capacity: capacity,
+		logger:   logger,
+	}
+}
+
+// TryAcquire attempts to acquire a slot in the queue
+func (bq *BoundedRequestQueue) TryAcquire() bool {
+	select {
+	case bq.queue <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+// Release releases a slot in the queue
+func (bq *BoundedRequestQueue) Release() {
+	select {
+	case <-bq.queue:
+		// Slot released
+	default:
+		// Queue was empty, nothing to release
+	}
+}
+
+// GetQueueDepth returns the current queue depth
+func (bq *BoundedRequestQueue) GetQueueDepth() int {
+	return len(bq.queue)
+}
+
+// GetCapacity returns the queue capacity
+func (bq *BoundedRequestQueue) GetCapacity() int {
+	return bq.capacity
+}
+
 // SecurityService handles security controls
 type SecurityService struct {
 	config          *SecurityConfig
@@ -100,6 +151,7 @@ type SecurityService struct {
 	concurrentJobs  map[string]int
 	bannedIPs       map[string]time.Time
 	greylistedIPs   map[string]time.Time
+	requestQueue    *BoundedRequestQueue
 	mu              sync.RWMutex
 	cleanupTicker   *time.Ticker
 	done            chan bool
@@ -116,11 +168,42 @@ type SecurityEvent struct {
 	Counters  map[string]int `json:"counters,omitempty"`
 }
 
+// RefusedRequestEvent represents a refused request event for logging
+type RefusedRequestEvent struct {
+	Timestamp     time.Time `json:"ts"`
+	IP            string    `json:"ip"`
+	Identity      string    `json:"identity,omitempty"`
+	Route         string    `json:"route"`
+	Method        string    `json:"method"`
+	UserAgent     string    `json:"user_agent"`
+	Reason        string    `json:"reason"`
+	QueueDepth    int       `json:"queue_depth"`
+	QueueCapacity int       `json:"queue_capacity"`
+	RateLimited   bool      `json:"rate_limited"`
+	Backpressure  bool      `json:"backpressure"`
+	TraceID       string    `json:"trace_id,omitempty"`
+}
+
 // NewSecurityService creates a new security service
 func NewSecurityService(configPath string, logger *slog.Logger) (*SecurityService, error) {
 	config, err := loadConfig(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load security config: %w", err)
+	}
+
+	// Set queue size from environment variable or config
+	queueSize := config.Queue.MaxSize
+	if queueSize <= 0 {
+		// Check environment variable
+		if envSize := os.Getenv("BACKEND_QUEUE_SIZE"); envSize != "" {
+			if parsed, err := strconv.Atoi(envSize); err == nil && parsed > 0 {
+				queueSize = parsed
+			}
+		}
+		// Fall back to default if still not set
+		if queueSize <= 0 {
+			queueSize = 100 // Default queue size
+		}
 	}
 
 	service := &SecurityService{
@@ -132,6 +215,7 @@ func NewSecurityService(configPath string, logger *slog.Logger) (*SecurityServic
 		concurrentJobs:  make(map[string]int),
 		bannedIPs:       make(map[string]time.Time),
 		greylistedIPs:   make(map[string]time.Time),
+		requestQueue:    NewBoundedRequestQueue(queueSize, logger),
 		done:            make(chan bool),
 	}
 
@@ -144,7 +228,7 @@ func NewSecurityService(configPath string, logger *slog.Logger) (*SecurityServic
 
 // loadConfig loads the security configuration from file
 func loadConfig(configPath string) (*SecurityConfig, error) {
-	data, err := io.ReadFile(configPath)
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +393,7 @@ func (s *SecurityService) CheckBackpressure() bool {
 	// For now, we'll use a simple heuristic based on goroutine count
 	cpuPressure := runtime.NumGoroutine() > 1000
 
-	if memUsageMB > s.config.Backpressure.MemHighWatermarkMB || cpuPressure {
+	if memUsageMB > s.config.Backpressure.MemHighWatermark || cpuPressure {
 		return true
 	}
 
@@ -382,6 +466,67 @@ func (s *SecurityService) logSecurityEvent(r *http.Request, identity, decision, 
 
 	eventJSON, _ := json.Marshal(event)
 	s.logger.Info("security_event", "event", string(eventJSON))
+}
+
+// CheckRequestQueue checks if a request can be queued
+func (s *SecurityService) CheckRequestQueue() bool {
+	return s.requestQueue.TryAcquire()
+}
+
+// ReleaseRequestQueue releases a request slot
+func (s *SecurityService) ReleaseRequestQueue() {
+	s.requestQueue.Release()
+}
+
+// GetQueueStats returns current queue statistics
+func (s *SecurityService) GetQueueStats() (depth, capacity int) {
+	return s.requestQueue.GetQueueDepth(), s.requestQueue.GetCapacity()
+}
+
+// LogRefusedRequest logs a structured refused request event
+func (s *SecurityService) LogRefusedRequest(r *http.Request, identity, reason string) {
+	queueDepth, queueCapacity := s.GetQueueStats()
+
+	// Check if request was rate limited
+	rateLimited, _ := s.CheckRateLimit(r, identity)
+
+	// Check if system is under backpressure
+	backpressure := s.CheckBackpressure()
+
+	// Extract trace ID if available
+	traceID := ""
+	if span := trace.SpanFromContext(r.Context()); span != nil {
+		traceID = span.SpanContext().TraceID().String()
+	}
+
+	event := RefusedRequestEvent{
+		Timestamp:     time.Now(),
+		IP:            getClientIP(r),
+		Identity:      identity,
+		Route:         r.URL.Path,
+		Method:        r.Method,
+		UserAgent:     r.UserAgent(),
+		Reason:        reason,
+		QueueDepth:    queueDepth,
+		QueueCapacity: queueCapacity,
+		RateLimited:   !rateLimited,
+		Backpressure:  backpressure,
+		TraceID:       traceID,
+	}
+
+	s.logger.Warn("request_refused",
+		"event", "refused_request",
+		"ip", event.IP,
+		"identity", event.Identity,
+		"route", event.Route,
+		"method", event.Method,
+		"reason", event.Reason,
+		"queue_depth", event.QueueDepth,
+		"queue_capacity", event.QueueCapacity,
+		"rate_limited", event.RateLimited,
+		"backpressure", event.Backpressure,
+		"trace_id", event.TraceID,
+	)
 }
 
 // min returns the minimum of two integers

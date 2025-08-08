@@ -17,6 +17,7 @@ import (
 	"pandacea/agent-backend/internal/policy"
 	"pandacea/agent-backend/internal/privacy"
 	"pandacea/agent-backend/internal/security"
+	"pandacea/agent-backend/internal/telemetry"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -27,13 +28,33 @@ func main() {
 	configPath := flag.String("config", "", "Path to configuration file")
 	flag.Parse()
 
-	// Set up structured logging
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	// Configure log level from env
+	level := slog.LevelInfo
+	switch os.Getenv("LOG_LEVEL") {
+	case "DEBUG", "debug":
+		level = slog.LevelDebug
+	case "WARN", "warn":
+		level = slog.LevelWarn
+	case "ERROR", "error":
+		level = slog.LevelError
+	}
+
+	// Set up structured JSON logging
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
 
 	logger.Info("starting Pandacea agent backend")
+
+	// Initialize OpenTelemetry (opt-in via PANDACEA_OTEL=1)
+	shutdownOTEL := func(context.Context) error { return nil }
+	if os.Getenv("PANDACEA_OTEL") == "1" {
+		// Defer to internal/telemetry package (build-tagged)
+		if fn, err := telemetry.Init(context.Background(), logger); err != nil {
+			logger.Error("failed to initialize OpenTelemetry", "error", err)
+		} else {
+			shutdownOTEL = fn
+		}
+	}
 
 	// Load configuration
 	cfg, err := config.Load(*configPath)
@@ -171,6 +192,11 @@ func main() {
 		}
 	}
 
+	// Shutdown telemetry last
+	if err := shutdownOTEL(context.Background()); err != nil {
+		logger.Error("failed to shutdown telemetry", "error", err)
+	}
+
 	logger.Info("agent backend shutdown complete")
 }
 
@@ -221,6 +247,8 @@ func startEventListener(ctx context.Context, cfg *config.Config, apiServer *api.
 		}
 	}
 }
+
+// Telemetry init moved to internal/telemetry with build tags.
 
 // handleLeaseCreatedEvent processes a LeaseCreated event
 func handleLeaseCreatedEvent(event *contracts.LeaseAgreementLeaseCreated, apiServer *api.Server, logger *slog.Logger) {

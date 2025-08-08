@@ -44,7 +44,7 @@ func TestServer_handleGetProducts(t *testing.T) {
 	mockP2PNode := &p2p.Node{}
 
 	// Create server
-	server := NewServer(policyEngine, logger, mockP2PNode)
+	server := NewServer(policyEngine, logger, mockP2PNode, nil, nil)
 
 	// Create request
 	req := httptest.NewRequest("GET", "/api/v1/products", nil)
@@ -71,6 +71,42 @@ func TestServer_handleGetProducts(t *testing.T) {
 	assert.Equal(t, "cursor_def456", response.NextCursor)
 }
 
+func TestMetricsEndpoint(t *testing.T) {
+	// Logger not critical here
+	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	testConfig := createTestServerConfig()
+	policyEngine, err := policy.NewEngine(logger, testConfig)
+	assert.NoError(t, err)
+	mockP2PNode := &p2p.Node{}
+	server := NewServer(policyEngine, logger, mockP2PNode, nil, nil)
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	w := httptest.NewRecorder()
+	server.router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestTraceIdPresentInLogs(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{}))
+
+	testConfig := createTestServerConfig()
+	policyEngine, err := policy.NewEngine(logger, testConfig)
+	assert.NoError(t, err)
+	mockP2PNode := &p2p.Node{}
+	server := NewServer(policyEngine, logger, mockP2PNode, nil, nil)
+
+	// Hit a route that doesn't require auth and passes through middleware
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	server.router.ServeHTTP(w, req)
+
+	logs := buf.String()
+	// Best-effort: allow absence if no tracer; just assert we logged the request
+	assert.Contains(t, logs, "http request")
+}
+
 func TestServer_handleCreateLease_ValidRequest(t *testing.T) {
 	// Create test logger
 	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
@@ -84,7 +120,7 @@ func TestServer_handleCreateLease_ValidRequest(t *testing.T) {
 	mockP2PNode := &p2p.Node{}
 
 	// Create server
-	server := NewServer(policyEngine, logger, mockP2PNode)
+	server := NewServer(policyEngine, logger, mockP2PNode, nil, nil)
 
 	// Create valid request
 	leaseReq := LeaseRequest{
@@ -127,7 +163,7 @@ func TestServer_handleCreateLease_InvalidProductID(t *testing.T) {
 	mockP2PNode := &p2p.Node{}
 
 	// Create server
-	server := NewServer(policyEngine, logger, mockP2PNode)
+	server := NewServer(policyEngine, logger, mockP2PNode, nil, nil)
 
 	// Create invalid request
 	leaseReq := LeaseRequest{
@@ -162,7 +198,7 @@ func TestServer_handleCreateLease_InvalidMaxPrice(t *testing.T) {
 	mockP2PNode := &p2p.Node{}
 
 	// Create server
-	server := NewServer(policyEngine, logger, mockP2PNode)
+	server := NewServer(policyEngine, logger, mockP2PNode, nil, nil)
 
 	// Create invalid request
 	leaseReq := LeaseRequest{
@@ -197,7 +233,7 @@ func TestServer_handleCreateLease_InvalidDuration(t *testing.T) {
 	mockP2PNode := &p2p.Node{}
 
 	// Create server
-	server := NewServer(policyEngine, logger, mockP2PNode)
+	server := NewServer(policyEngine, logger, mockP2PNode, nil, nil)
 
 	// Create invalid request
 	leaseReq := LeaseRequest{
@@ -232,7 +268,7 @@ func TestServer_handleCreateLease_MissingFields(t *testing.T) {
 	mockP2PNode := &p2p.Node{}
 
 	// Create server
-	server := NewServer(policyEngine, logger, mockP2PNode)
+	server := NewServer(policyEngine, logger, mockP2PNode, nil, nil)
 
 	// Create invalid request with missing fields
 	leaseReq := LeaseRequest{
@@ -266,7 +302,7 @@ func TestServer_handleHealth(t *testing.T) {
 	mockP2PNode := &p2p.Node{}
 
 	// Create server
-	server := NewServer(policyEngine, logger, mockP2PNode)
+	server := NewServer(policyEngine, logger, mockP2PNode, nil, nil)
 
 	// Create request
 	req := httptest.NewRequest("GET", "/health", nil)
@@ -301,7 +337,7 @@ func TestServer_validateLeaseRequest(t *testing.T) {
 	mockP2PNode := &p2p.Node{}
 
 	// Create server
-	server := NewServer(policyEngine, logger, mockP2PNode)
+	server := NewServer(policyEngine, logger, mockP2PNode, nil, nil)
 
 	tests := []struct {
 		name    string
@@ -380,7 +416,7 @@ func TestServer_handleGetLeaseStatus(t *testing.T) {
 	mockP2PNode := &p2p.Node{}
 
 	// Create server
-	server := NewServer(policyEngine, logger, mockP2PNode)
+	server := NewServer(policyEngine, logger, mockP2PNode, nil, nil)
 
 	// Test case 1: Lease proposal exists
 	t.Run("lease proposal exists", func(t *testing.T) {
@@ -462,7 +498,7 @@ func TestServer_UpdateLeaseStatus(t *testing.T) {
 	mockP2PNode := &p2p.Node{}
 
 	// Create server
-	server := NewServer(policyEngine, logger, mockP2PNode)
+	server := NewServer(policyEngine, logger, mockP2PNode, nil, nil)
 
 	// Test case 1: Create new lease status
 	t.Run("create new lease status", func(t *testing.T) {

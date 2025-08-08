@@ -19,6 +19,7 @@ from web3 import Web3
 
 from .exceptions import AgentConnectionError, APIResponseError, PandaceaException
 from .models import DataProduct
+from .reliability import with_reliability, get_circuit_breaker
 
 
 class PandaceaClient:
@@ -54,6 +55,31 @@ class PandaceaClient:
             'Accept': 'application/json',
             'Content-Type': 'application/json',
         })
+
+        # Telemetry opt-in: if enabled, propagate W3C trace context from SDK logs/requests
+        if os.getenv("PANDACEA_OTEL") == "1":
+            try:
+                import opentelemetry.trace as oteltrace
+                from opentelemetry.propagate import inject
+                from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+                from opentelemetry import baggage
+                # Attach simple request hook to add trace headers
+                def _inject_headers(headers: dict):
+                    try:
+                        carrier = {}
+                        inject(carrier)
+                        headers.update(carrier)
+                    except Exception:
+                        pass
+                # Store for later use in requests
+                self._otel_inject = _inject_headers
+                # Set default service name if provided
+                service_name = os.getenv("PANDACEA_SERVICE_NAME", "builder-sdk")
+                _ = Resource.create({SERVICE_NAME: service_name})
+            except Exception:
+                self._otel_inject = None
+        else:
+            self._otel_inject = None
 
         # START ADDITIONS: Blockchain Integration
         self.rpc_url = os.getenv("RPC_URL", "http://127.0.0.1:8545")
@@ -182,6 +208,7 @@ class PandaceaClient:
         
         return headers
     
+    @with_reliability(circuit_name="discover_products")
     def discover_products(self) -> List[DataProduct]:
         """
         Discover available data products from the agent.
@@ -203,6 +230,9 @@ class PandaceaClient:
         canonical_data = f"GET /api/v1/products".encode('utf-8')
         headers = self._prepare_headers(canonical_data)
         
+        # Inject trace headers if available
+        if hasattr(self, "_otel_inject") and self._otel_inject:
+            self._otel_inject(headers)
         try:
             response = self.session.get(url, headers=headers, timeout=self.timeout)
             
@@ -278,6 +308,7 @@ class PandaceaClient:
                 original_error=e
             )
     
+    @with_reliability(circuit_name="request_lease")
     def request_lease(self, product_id: str, max_price: str, duration: str) -> str:
         """
         Request a lease for a data product.
@@ -313,6 +344,8 @@ class PandaceaClient:
         # Prepare headers with signature
         headers = self._prepare_headers(payload_bytes)
         
+        if hasattr(self, "_otel_inject") and self._otel_inject:
+            self._otel_inject(headers)
         try:
             response = self.session.post(url, data=payload_bytes, headers=headers, timeout=self.timeout)
             
@@ -377,6 +410,7 @@ class PandaceaClient:
             )
 
     # START ADDITION: New method for on-chain lease creation
+    @with_reliability(circuit_name="execute_lease_on_chain")
     def execute_lease_on_chain(self, earner: str, data_product_id: bytes, max_price: int, payment_in_wei: int) -> str:
         """
         Builds, signs, and sends a transaction to the createLease function.
@@ -427,6 +461,7 @@ class PandaceaClient:
         return tx_hash.hex()
     # END ADDITION
 
+    @with_reliability(circuit_name="execute_computation")
     def execute_computation(self, lease_id: str, computation_cid: str, inputs: list[dict]) -> str:
         """
         Start an asynchronous privacy-preserving computation on an Earner's agent.
@@ -460,6 +495,8 @@ class PandaceaClient:
 
         url = urljoin(self.base_url, '/api/v1/privacy/execute')
 
+        if hasattr(self, "_otel_inject") and self._otel_inject:
+            self._otel_inject(headers)
         try:
             response = self.session.post(url, data=payload_bytes, headers=headers, timeout=self.timeout)
             
@@ -516,6 +553,7 @@ class PandaceaClient:
                 original_error=e
             )
 
+    @with_reliability(circuit_name="approve_pgt_tokens")
     def approve_pgt_tokens(self, spender_address: str, amount: int) -> str:
         """
         Approve PGT tokens for the LeaseAgreement contract to spend on behalf of the spender.
@@ -583,6 +621,7 @@ class PandaceaClient:
         except Exception as e:
             raise PandaceaException(f"Failed to approve PGT tokens: {e}")
 
+    @with_reliability(circuit_name="get_required_stake")
     def get_required_stake(self, lease_id: str) -> int:
         """
         Get the required stake amount for a given lease based on the dynamic stake calculation.
@@ -610,6 +649,7 @@ class PandaceaClient:
         except Exception as e:
             raise PandaceaException(f"Failed to get required stake: {e}")
 
+    @with_reliability(circuit_name="raise_dispute")
     def raise_dispute(self, lease_id: str, reason: str) -> str:
         """
         Raise a stake-based dispute against an earner for a specific lease with dynamic stake calculation.
@@ -721,6 +761,7 @@ class PandaceaClient:
         except Exception as e:
             raise PandaceaException(f"Failed to raise dispute: {e}")
 
+    @with_reliability(circuit_name="finalize_lease")
     def finalize_lease(self, lease_id: str) -> str:
         """
         Finalize a successful lease and reward the earner with positive reputation.
@@ -771,6 +812,7 @@ class PandaceaClient:
         except Exception as e:
             raise PandaceaException(f"Failed to finalize lease: {e}")
 
+    @with_reliability(circuit_name="upload_code_to_ipfs")
     def upload_code_to_ipfs(self, file_path: str) -> str:
         """
         Uploads a local file to an IPFS node and returns its CID.
@@ -813,6 +855,7 @@ class PandaceaClient:
         except Exception as e:
             raise PandaceaException(f"Failed to upload file to IPFS: {e}")
 
+    @with_reliability(circuit_name="get_computation_result")
     def get_computation_result(self, computation_id: str) -> dict:
         """
         Get the result of an asynchronous computation.
@@ -833,6 +876,8 @@ class PandaceaClient:
 
         url = urljoin(self.base_url, f'/api/v1/privacy/results/{computation_id}')
 
+        if hasattr(self, "_otel_inject") and self._otel_inject:
+            self._otel_inject(headers)
         try:
             response = self.session.get(url, headers=headers, timeout=self.timeout)
             
@@ -889,6 +934,7 @@ class PandaceaClient:
                 original_error=e
             )
 
+    @with_reliability(circuit_name="wait_for_computation")
     def wait_for_computation(self, computation_id: str, timeout: float = 300.0, poll_interval: float = 2.0) -> dict:
         """
         Wait for a computation to complete and return the results.
@@ -924,6 +970,7 @@ class PandaceaClient:
         
         raise PandaceaException(f"Computation timed out after {timeout} seconds")
 
+    @with_reliability(circuit_name="decode_artifact")
     def decode_artifact(self, encoded_artifact: str) -> bytes:
         """
         Decode a base64-encoded artifact back into bytes.

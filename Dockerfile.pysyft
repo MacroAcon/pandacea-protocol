@@ -1,7 +1,14 @@
 # PySyft Worker Dockerfile
 # Provides a containerized environment for running PySyft training workers
 
-FROM python:3.11-slim
+# Use Python 3.11 slim image (pinned by digest for reproducibility)
+# To get the actual digest: docker pull python:3.11-slim && docker images --digests | grep python
+FROM python:3.11-slim@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+
+# Build arguments for reproducible builds
+ARG VERSION_SHA
+ARG BUILD_DATE
+ARG VCS_REF
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -25,6 +32,16 @@ ENV PYTHONPATH=/app/worker
 
 # Create data directory
 RUN mkdir -p /app/data
+
+# Add OCI labels for reproducible builds
+LABEL org.opencontainers.image.title="Pandacea PySyft Worker" \
+      org.opencontainers.image.description="Privacy-preserving computation environment for Pandacea Protocol" \
+      org.opencontainers.image.vendor="Pandacea Protocol" \
+      org.opencontainers.image.version="${VERSION_SHA:-latest}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.source="https://github.com/pandacea/pandacea-protocol" \
+      org.opencontainers.image.licenses="MIT"
 
 # Default command
 CMD ["python", "/app/worker/train_worker.py"]

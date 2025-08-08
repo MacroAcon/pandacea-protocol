@@ -13,6 +13,10 @@ backpressure:
   cpu_high_watermark: 85           # CPU usage percentage to trigger backpressure
   mem_high_watermark_mb: 2048      # Memory usage in MB to trigger backpressure
 
+# Bounded request queue for load shedding
+queue:
+  max_size: 100                    # Maximum number of concurrent requests to queue
+
 bans:
   greylist_seconds: 600            # Duration to greylist IPs that exceed limits
   temp_ban_seconds: 1800          # Duration to temporarily ban IPs for violations

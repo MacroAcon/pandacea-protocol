@@ -2,6 +2,7 @@ module pandacea/agent-backend
 
 go 1.23.8
 
+// Pin toolchain for reproducible builds
 toolchain go1.24.2
 
 require (
@@ -13,6 +14,13 @@ require (
 	github.com/shopspring/decimal v1.3.1
 	github.com/stretchr/testify v1.10.0
 	gopkg.in/yaml.v3 v3.0.1
+	github.com/prometheus/client_golang v1.22.0
+	go.opentelemetry.io/otel v1.35.0
+	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.35.0
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.35.0
+	go.opentelemetry.io/otel/sdk/metric v1.35.0
+	go.opentelemetry.io/otel/sdk/resource v1.35.0
+	go.opentelemetry.io/otel/sdk/trace v1.35.0
 )
 
 require (

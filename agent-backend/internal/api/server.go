@@ -23,6 +23,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // LeaseProposalState represents the state of a lease proposal
@@ -62,6 +64,7 @@ type Server struct {
 	securityService *security.SecurityService
 	jobs            map[string]*TrainingJob
 	jobsMutex       sync.RWMutex
+	startTime       time.Time
 }
 
 // DataProduct represents a data product as per API specification
@@ -152,16 +155,22 @@ func NewServer(policyEngine *policy.Engine, logger *slog.Logger, p2pNode *p2p.No
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.Timeout(60 * time.Second))
+	// Note: HTTP tracing is enabled via upstream otel propagator and logging middleware
 
-	// Add structured logging middleware
+	// Add structured logging middleware with trace correlation
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			logger.Info("http request",
+			spanCtx := trace.SpanContextFromContext(r.Context())
+			attrs := []any{
 				"method", r.Method,
 				"path", r.URL.Path,
 				"remote_addr", r.RemoteAddr,
 				"user_agent", r.UserAgent(),
-			)
+			}
+			if spanCtx.IsValid() {
+				attrs = append(attrs, "trace_id", spanCtx.TraceID().String(), "span_id", spanCtx.SpanID().String())
+			}
+			logger.Info("http request", attrs...)
 			next.ServeHTTP(w, r)
 		})
 	})
@@ -176,6 +185,7 @@ func NewServer(policyEngine *policy.Engine, logger *slog.Logger, p2pNode *p2p.No
 		privacyService:  privacyService,
 		securityService: securityService,
 		jobs:            make(map[string]*TrainingJob),
+		startTime:       time.Now(),
 	}
 
 	// Load products from JSON file
@@ -254,8 +264,13 @@ func (server *Server) setupRoutes() {
 	server.router.Post("/train", server.handleTrainLegacy)
 	server.router.Get("/aggregate/{jobId}", server.handleAggregateLegacy)
 
-	// Health check (no signature required)
-	server.router.Get("/health", server.handleHealth)
+	// Health and readiness (no signature required)
+	server.router.Get("/health", server.handleHealth)   // legacy
+	server.router.Get("/healthz", server.handleHealthz) // k8s-style liveness
+	server.router.Get("/readyz", server.handleReadyz)
+
+	// Metrics endpoint
+	server.router.Handle("/metrics", promhttp.Handler())
 }
 
 // addVersionHeader adds the API version header to all responses
@@ -275,13 +290,6 @@ func (server *Server) securityMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Check backpressure
-		if server.securityService.CheckBackpressure() {
-			w.Header().Set("Retry-After", "30")
-			server.sendErrorResponse(w, r, http.StatusServiceUnavailable, "BACKPRESSURE", "Service temporarily unavailable due to high load")
-			return
-		}
-
 		// Extract identity from signature (simplified for now)
 		identity := ""
 		if signature := r.Header.Get("X-Signature"); signature != "" {
@@ -289,9 +297,28 @@ func (server *Server) securityMiddleware(next http.Handler) http.Handler {
 			identity = "authenticated_user"
 		}
 
+		// Check bounded request queue first (load shedding)
+		if !server.securityService.CheckRequestQueue() {
+			server.securityService.LogRefusedRequest(r, identity, "queue_full")
+			w.Header().Set("Retry-After", "5")
+			server.sendErrorResponse(w, r, http.StatusServiceUnavailable, "QUEUE_FULL", "Service temporarily unavailable due to high load")
+			return
+		}
+		// Release queue slot when request completes
+		defer server.securityService.ReleaseRequestQueue()
+
+		// Check backpressure
+		if server.securityService.CheckBackpressure() {
+			server.securityService.LogRefusedRequest(r, identity, "backpressure")
+			w.Header().Set("Retry-After", "30")
+			server.sendErrorResponse(w, r, http.StatusServiceUnavailable, "BACKPRESSURE", "Service temporarily unavailable due to high load")
+			return
+		}
+
 		// Check rate limits
 		allowed, retryAfter := server.securityService.CheckRateLimit(r, identity)
 		if !allowed {
+			server.securityService.LogRefusedRequest(r, identity, "rate_limited")
 			w.Header().Set("Retry-After", fmt.Sprintf("%.0f", retryAfter.Seconds()))
 			server.sendErrorResponse(w, r, http.StatusTooManyRequests, "RATE_LIMITED", "Rate limit exceeded")
 			return
@@ -300,6 +327,7 @@ func (server *Server) securityMiddleware(next http.Handler) http.Handler {
 		// Check concurrency quota for training endpoints
 		if r.URL.Path == "/api/v1/train" && identity != "" {
 			if !server.securityService.CheckConcurrencyQuota(identity) {
+				server.securityService.LogRefusedRequest(r, identity, "quota_exceeded")
 				server.sendErrorResponse(w, r, http.StatusConflict, "QUOTA_EXCEEDED", "Concurrent job limit exceeded")
 				return
 			}
@@ -518,6 +546,89 @@ func (server *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }
 
+// handleHealthz is a lightweight liveness probe
+func (server *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":   "ok",
+		"uptime_s": int(time.Since(server.startTime).Seconds()),
+	})
+}
+
+// handleReadyz performs basic readiness checks against optional dependencies
+func (server *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	type check struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		Detail string `json:"detail,omitempty"`
+	}
+
+	checks := []check{}
+	overallReady := true
+
+	// IPFS readiness (best-effort)
+	ipfsURL := os.Getenv("IPFS_API_URL")
+	if ipfsURL == "" {
+		ipfsURL = "http://127.0.0.1:5001"
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(strings.TrimRight(ipfsURL, "/") + "/api/v0/version")
+	if err == nil && resp.StatusCode == http.StatusOK {
+		checks = append(checks, check{Name: "ipfs", Status: "ready"})
+	} else {
+		overallReady = false
+		detail := "not reachable"
+		if err != nil {
+			detail = err.Error()
+		}
+		checks = append(checks, check{Name: "ipfs", Status: "not_ready", Detail: detail})
+	}
+
+	// EVM RPC readiness (best-effort): check env then try TCP HTTP HEAD
+	evmRPC := os.Getenv("RPC_URL")
+	if evmRPC == "" {
+		evmRPC = os.Getenv("BLOCKCHAIN_RPC_URL")
+	}
+	if evmRPC != "" {
+		req, _ := http.NewRequest(http.MethodHead, evmRPC, nil)
+		req = req.WithContext(r.Context())
+		if resp, err := client.Do(req); err == nil && resp.StatusCode < 500 {
+			checks = append(checks, check{Name: "evm_rpc", Status: "ready"})
+		} else {
+			overallReady = false
+			d := "not reachable"
+			if err != nil {
+				d = err.Error()
+			}
+			checks = append(checks, check{Name: "evm_rpc", Status: "not_ready", Detail: d})
+		}
+	} else {
+		checks = append(checks, check{Name: "evm_rpc", Status: "unknown", Detail: "not configured"})
+	}
+
+	// PySyft readiness (mock vs real)
+	if os.Getenv("MOCK_DP") == "1" {
+		checks = append(checks, check{Name: "pysyft", Status: "ready", Detail: "mock mode"})
+	} else if server.privacyService != nil {
+		checks = append(checks, check{Name: "pysyft", Status: "ready"})
+	} else {
+		// Not strictly required for API readiness, mark unknown
+		checks = append(checks, check{Name: "pysyft", Status: "unknown", Detail: "not configured"})
+	}
+
+	payload := map[string]any{
+		"ready":  overallReady,
+		"checks": checks,
+	}
+	code := http.StatusOK
+	if !overallReady {
+		code = http.StatusServiceUnavailable
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
 // handleGetLeaseStatus handles requests to get the status of a lease proposal
 func (server *Server) handleGetLeaseStatus(w http.ResponseWriter, r *http.Request) {
 	leaseProposalID := chi.URLParam(r, "leaseProposalId")
@@ -586,6 +697,7 @@ func (server *Server) UpdateLeaseStatus(leaseProposalID string, status string, l
 // Start starts the HTTP server
 func (server *Server) Start(addr string) error {
 	server.logger.Info("starting HTTP server", "addr", addr)
+	// Note: the actual otelhttp wrapping occurs in main to ensure global providers are initialized
 	return http.ListenAndServe(addr, server.router)
 }
 

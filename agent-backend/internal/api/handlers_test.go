@@ -56,7 +56,7 @@ func setupTestServer(t *testing.T) *Server {
 	policyEngine := &policy.Engine{}
 	privacyService := &MockPrivacyService{}
 
-	server := NewServer(policyEngine, nil, nil, privacyService)
+	server := NewServer(policyEngine, nil, nil, privacyService, nil)
 
 	// Set MOCK_DP environment variable for testing
 	os.Setenv("MOCK_DP", "1")
@@ -340,4 +340,24 @@ func TestHealthEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "healthy", response["status"])
+}
+
+func TestHealthzAndReadyz(t *testing.T) {
+	server := setupTestServer(t)
+
+	// /healthz should always succeed
+	req := httptest.NewRequest("GET", "/healthz", nil)
+	w := httptest.NewRecorder()
+	server.router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// /readyz returns 200 or 503 based on environment, but JSON must include keys
+	req = httptest.NewRequest("GET", "/readyz", nil)
+	w = httptest.NewRecorder()
+	server.router.ServeHTTP(w, req)
+	assert.Contains(t, []int{http.StatusOK, http.StatusServiceUnavailable}, w.Code)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	_, ok := payload["checks"]
+	assert.True(t, ok)
 }
