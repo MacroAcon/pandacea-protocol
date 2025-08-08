@@ -25,9 +25,11 @@ jobs:
       working-directory: agent-backend
       run: go mod download
       
-    - name: Run unit tests
+    - name: Run unit tests with coverage
       working-directory: agent-backend
-      run: go test -v ./...
+      run: |
+        go test ./... -count=1 -covermode=atomic -coverprofile=coverage.out
+        go tool cover -func=coverage.out > coverage.txt
       
     - name: Install gosec
       run: |
@@ -67,6 +69,16 @@ jobs:
         name: agent-security-report
         path: agent-backend/security-report.json
         retention-days: 30
+        
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: agent-coverage-report
+        path: |
+          agent-backend/coverage.out
+          agent-backend/coverage.txt
+        retention-days: 30
 
   builder-sdk:
     name: Builder SDK
@@ -82,17 +94,25 @@ jobs:
         python-version: '3.11'
         cache: 'pip'
         
+    - name: Install Poetry
+      run: |
+        curl -sSL https://install.python-poetry.org | python3 -
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        poetry --version
+        
     - name: Install dependencies
       working-directory: builder-sdk
       run: |
-        python -m pip install --upgrade pip
-        pip install -e .
-        pip install pytest pytest-cov bandit
+        poetry install --no-interaction --no-ansi
         
-    - name: Run unit tests
+    - name: Run unit tests with coverage
       working-directory: builder-sdk
       run: |
-        pytest tests/ -v --cov=pandacea_sdk --cov-report=xml
+        poetry run pytest -q --maxfail=1 \
+          --cov=pandacea_sdk \
+          --cov-report=xml:coverage.xml \
+          --junitxml=junit.xml \
+          tests/
         
     - name: Run security scan
       working-directory: builder-sdk
@@ -134,7 +154,9 @@ jobs:
       if: always()
       with:
         name: sdk-coverage-report
-        path: builder-sdk/coverage.xml
+        path: |
+          builder-sdk/coverage.xml
+          builder-sdk/junit.xml
         retention-days: 30
 
   integration-tests:
