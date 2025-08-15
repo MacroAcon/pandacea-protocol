@@ -1,0 +1,2 @@
+# This file ensures the abi directory is tracked in git
+# The directory will contain exported ABIs for the SDK
