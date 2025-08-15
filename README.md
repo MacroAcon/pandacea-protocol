@@ -330,6 +330,33 @@ bash scripts/export_abi.sh
 pytest -q tests/abi_compat_test.py
 ```
 
+### Developer Workflow
+
+**Quick Development Cycle:**
+```bash
+# Install dev dependencies
+pip install -r requirements-dev.txt
+
+# Install pre-commit hooks
+pre-commit install
+
+# Run all quality checks
+pre-commit run --all-files
+
+# Run Go tests
+go test ./agent-backend/... ./...
+
+# Export ABIs and test
+bash scripts/export_abi.sh   # or: pwsh -File scripts/export_abi.ps1
+pytest -q tests/abi_compat_test.py
+```
+
+**Pre-commit Hooks:**
+- **ruff**: Fast Python linting and formatting
+- **black**: Code style enforcement
+- **mypy**: Type checking for Python SDK
+- **golangci-lint**: Go code quality and security
+
 ### Development Guidelines
 
 - **Code Style**: Follow Go and Python best practices
