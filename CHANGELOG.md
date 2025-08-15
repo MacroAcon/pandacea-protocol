@@ -26,5 +26,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added health endpoint documentation and testing
 - Documented ABI management and compatibility testing procedures
 
+## [v0.9.0-rc1] - 2024-01-15
+
+### Added
+- **Repo hardening**: pre-commit (ruff, black, mypy), Go lint/tests
+- **Unified health/ready/metrics** with graceful shutdown
+- **Minimal token-bucket limiter** on write routes
+- **Strongly typed Python SDK** models and errors
+- **Minimal ABI export** + ABI compatibility test
+- **Unified CI quick lane** + tagged release publishing
+
+### Changed
+- Consolidated health endpoints via internal/httpserver package
+- Applied rate limiting to mutating endpoints (POST/PUT/PATCH/DELETE)
+- Aligned ABI test with actual contract function names
+- Enhanced developer workflow documentation
+
 ## [0.1.0] - 2024-01-01
 - Initial release
