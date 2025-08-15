@@ -283,6 +283,53 @@ We welcome contributions from the community! The Pandacea Protocol is built on o
 3. **Make Your Changes**: Follow our coding standards and testing requirements
 4. **Submit a Pull Request**: We'll review and merge your contributions
 
+### Development Setup
+
+**Install Development Dependencies:**
+```bash
+# Python dependencies
+pip install -r requirements-dev.txt
+
+# Install pre-commit hooks
+pre-commit install
+```
+
+**Run Quality Checks:**
+```bash
+# Run all pre-commit hooks
+pre-commit run --all-files
+
+# Python linting and type checking
+ruff check .
+black --check .
+mypy builder-sdk/
+
+# Go linting and testing
+golangci-lint run
+go test ./...
+```
+
+**Health Endpoints:**
+The Go service provides standard health check endpoints:
+- `/healthz` - Liveness probe (always returns 200)
+- `/readyz` - Readiness probe (returns 200 if ready, 503 if not)
+- `/metrics` - Prometheus metrics endpoint
+
+**ABI Management:**
+Export smart contract ABIs for SDK use:
+```bash
+# Windows
+powershell -File scripts/export_abi.ps1
+
+# Unix/Linux
+bash scripts/export_abi.sh
+```
+
+**ABI Compatibility Testing:**
+```bash
+pytest -q tests/abi_compat_test.py
+```
+
 ### Development Guidelines
 
 - **Code Style**: Follow Go and Python best practices
