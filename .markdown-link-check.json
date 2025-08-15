@@ -1,0 +1,8 @@
+{
+  "ignorePatterns": [
+    { "pattern": "^https?://.*" },
+    { "pattern": "^mailto:.*" }
+  ],
+  "replacementPatterns": [],
+  "timeout": "10s"
+}

@@ -206,4 +206,4 @@ When adding new simulations:
 
 - [Economic Model Documentation](../docs/economics/simulation_report.md)
 - [Protocol Whitepaper](../docs/Pandacea%20Protocol%20Technical%20Whitepaper%20v5.1.pdf)
-- [Security Implementation](../SECURITY_IMPLEMENTATION.md)
+- [Security Implementation](../docs/security/implementation.md)

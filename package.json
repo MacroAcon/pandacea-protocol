@@ -1,0 +1,14 @@
+{
+  "name": "pandacea-protocol-meta",
+  "private": true,
+  "scripts": {
+    "lint:md": "markdownlint \"**/*.md\"",
+    "spellcheck": "cspell \"**/*.md\"",
+    "linkcheck": "markdown-link-check -c .markdown-link-check.json -q docs/index.md"
+  },
+  "devDependencies": {
+    "markdownlint-cli": "^0.42.0",
+    "cspell": "^8.14.2",
+    "markdown-link-check": "^3.12.2"
+  }
+}

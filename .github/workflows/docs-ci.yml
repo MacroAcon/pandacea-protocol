@@ -1,0 +1,31 @@
+name: Docs CI
+
+on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - "**/*.md"
+      - ".markdownlint.yaml"
+      - ".cspell.json"
+      - ".markdown-link-check.json"
+  push:
+    branches: [ "main" ]
+    paths:
+      - "docs/**"
+      - "**/*.md"
+      - ".markdownlint.yaml"
+      - ".cspell.json"
+      - ".markdown-link-check.json"
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci || npm i
+      - run: npm run lint:md
+      - run: npm run spellcheck || echo "Spellcheck warnings allowed"
+      - run: npm run linkcheck

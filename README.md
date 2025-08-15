@@ -9,6 +9,14 @@
 
 ---
 
+## Documentation
+All documentation lives under [/docs](docs/index.md). Start here:
+- [Architecture](docs/architecture/README.md)
+- [Protocol](docs/protocol/README.md)
+- [Economics](docs/economics/README.md)
+- [Security](docs/security/README.md)
+- [Operations](docs/operations/README.md)
+
 ## Mission Statement
 
 The Pandacea Protocol is a decentralized infrastructure layer designed to facilitate a fair, secure, and transparent market for real-world, user-generated data. We address the systemic failures of the current data paradigm by establishing a new framework for "Informational Labor" built on verifiable consent and distributed value. Our protocol creates a human-centered data economy where individuals own and monetize their data while maintaining privacy and control through privacy-preserving computation, fair and transparent marketplace mechanisms, and decentralized governance.
@@ -296,9 +304,9 @@ For detailed guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md) and our [Enginee
 - **[Comprehensive Roadmap](docs/Pandacea%20Protocol_%20Comprehensive%20Roadmap%20(v3.0).md)** - Development timeline and milestones
 
 ### Implementation Guides
-- **[Differentiated Dispute Stakes](DIFFERENTIATED_DISPUTE_STAKES_IMPLEMENTATION.md)** - Economic security implementation
-- **[Security Implementation](SECURITY_IMPLEMENTATION.md)** - Security features and best practices
-- **[IPFS Integration](IPFS_INTEGRATION.md)** - Decentralized storage implementation
+- **[Differentiated Dispute Stakes](docs/economics/differentiated-dispute-stakes.md)** - Economic security implementation
+- **[Security Implementation](docs/security/implementation.md)** - Security features and best practices
+- **[IPFS Integration](docs/architecture/ipfs-integration.md)** - Decentralized storage implementation
 
 ## Technology Stack
 

@@ -485,4 +485,4 @@ Invoke-WebRequest -Uri "http://localhost:8080/health" -Method GET
 4. Document findings and recommendations
 5. Update security configuration as needed
 
-For more information, see the [Security Implementation Guide](SECURITY_IMPLEMENTATION.md) and [Agent Abuse Controls Documentation](docs/security/agent_abuse_controls.md).
+For more information, see the [Security Implementation Guide](security/implementation.md) and [Agent Abuse Controls Documentation](docs/security/agent_abuse_controls.md).

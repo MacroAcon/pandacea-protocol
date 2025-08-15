@@ -1,0 +1,6 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "files": ["**/*.md"],
+  "words": ["libp2p","PySyft","KAD-DHT","anvil","Foundry","Bandit","gosec","PGT","IPFS","DID","VCs","SBOM"]
+}
