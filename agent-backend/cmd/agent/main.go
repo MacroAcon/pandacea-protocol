@@ -14,6 +14,7 @@ import (
 	"pandacea/agent-backend/internal/config"
 	"pandacea/agent-backend/internal/contracts"
 	"pandacea/agent-backend/internal/httpserver"
+	"pandacea/agent-backend/internal/limits"
 	"pandacea/agent-backend/internal/p2p"
 	"pandacea/agent-backend/internal/policy"
 	"pandacea/agent-backend/internal/privacy"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"golang.org/x/time/rate"
 )
 
 func main() {
@@ -143,6 +145,11 @@ func main() {
 
 	// Add health endpoints to the existing API server
 	httpserver.IntegrateWithExistingServer(apiServer.GetRouter(), ready)
+
+	// Add rate limiting to mutating endpoints
+	// ~20 requests per second with burst of 40
+	limiter := limits.TokenBucket(rate.Limit(20), 40)
+	apiServer.ApplyRateLimiting(limiter)
 
 	// Start API server in a goroutine
 	go func() {

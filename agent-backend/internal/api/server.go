@@ -201,6 +201,22 @@ func (server *Server) GetRouter() *chi.Mux {
 	return server.router
 }
 
+// ApplyRateLimiting applies rate limiting to mutating endpoints
+func (server *Server) ApplyRateLimiting(limiter func(http.Handler) http.Handler) {
+	// Apply rate limiting to POST/PUT/PATCH/DELETE endpoints
+	// Note: GET endpoints are left unwrapped for performance
+	server.router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Only apply rate limiting to mutating methods
+			if r.Method == "POST" || r.Method == "PUT" || r.Method == "PATCH" || r.Method == "DELETE" {
+				limiter(next).ServeHTTP(w, r)
+			} else {
+				next.ServeHTTP(w, r)
+			}
+		})
+	})
+}
+
 // loadProducts loads products from the products.json file
 func (server *Server) loadProducts() {
 	// Try multiple paths for products.json
