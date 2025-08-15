@@ -2,9 +2,9 @@
   "name": "pandacea-protocol-meta",
   "private": true,
   "scripts": {
-    "lint:md": "markdownlint \"**/*.md\"",
-    "spellcheck": "cspell \"**/*.md\"",
-    "linkcheck": "markdown-link-check -c .markdown-link-check.json -q docs/index.md"
+    "lint:md": "markdownlint \"**/*.md\" --ignore node_modules --ignore docs/_assets",
+    "spellcheck": "cspell \"**/*.md\" --no-progress",
+    "linkcheck": "git ls-files \"*.md\" | grep -v node_modules | xargs -n1 -I {} markdown-link-check -c .markdown-link-check.json -q {}"
   },
   "devDependencies": {
     "markdownlint-cli": "^0.42.0",

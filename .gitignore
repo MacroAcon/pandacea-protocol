@@ -54,6 +54,14 @@ agent-backend/agent.exe
 vendor/
 
 # ===================================================================
+# Node.js (for Documentation Tools)
+# ===================================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ===================================================================
 # Python (for Builder SDK & Integration)
 # ===================================================================
 # Byte-compiled / optimized / DLL files

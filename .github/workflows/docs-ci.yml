@@ -28,4 +28,4 @@ jobs:
       - run: npm ci || npm i
       - run: npm run lint:md
       - run: npm run spellcheck || echo "Spellcheck warnings allowed"
-      - run: npm run linkcheck
+      - run: git ls-files "*.md" | grep -v node_modules | xargs -n1 -I {} npx markdown-link-check -c .markdown-link-check.json -q {}

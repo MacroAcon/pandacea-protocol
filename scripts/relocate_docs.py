@@ -7,6 +7,7 @@ MD = list(ROOT.rglob("*.md"))
 MAPPING = {
   "AGGRESSIVE_REPUTATION_DECAY_IMPLEMENTATION.md": "docs/economics/aggressive-reputation-decay.md",
   "DIFFERENTIATED_DISPUTE_STAKES_IMPLEMENTATION.md": "docs/economics/differentiated-dispute-stakes.md",
+  "STAKE_BASED_DISPUTES_IMPLEMENTATION.md": "docs/economics/differentiated-dispute-stakes.md",
   "COMPLETE_ECONOMIC_MODEL_IMPLEMENTATION.md": "docs/economics/complete-economic-model.md",
   "DISPUTE_RESOLUTION_IMPLEMENTATION.md": "docs/protocol/dispute-resolution.md",
   "IPFS_INTEGRATION.md": "docs/architecture/ipfs-integration.md",
