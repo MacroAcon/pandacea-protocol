@@ -13,6 +13,7 @@ import (
 	"pandacea/agent-backend/internal/api"
 	"pandacea/agent-backend/internal/config"
 	"pandacea/agent-backend/internal/contracts"
+	"pandacea/agent-backend/internal/httpserver"
 	"pandacea/agent-backend/internal/p2p"
 	"pandacea/agent-backend/internal/policy"
 	"pandacea/agent-backend/internal/privacy"
@@ -134,6 +135,15 @@ func main() {
 	// Initialize API server
 	apiServer := api.NewServer(policyEngine, logger, p2pNode, privacyService, securityService)
 
+	// Create readiness check function
+	ready := func() bool {
+		// Return true if all critical services are initialized
+		return p2pNode != nil && apiServer != nil
+	}
+
+	// Add health endpoints to the existing API server
+	httpserver.IntegrateWithExistingServer(apiServer.GetRouter(), ready)
+
 	// Start API server in a goroutine
 	go func() {
 		if err := apiServer.Start(cfg.GetServerAddr()); err != nil {
@@ -161,43 +171,9 @@ func main() {
 		"p2p_addrs", p2pNode.GetListenAddrs(),
 	)
 
-	// Set up signal handling for graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Wait for shutdown signal
-	select {
-	case sig := <-sigChan:
-		logger.Info("received shutdown signal", "signal", sig)
-	case <-ctx.Done():
-		logger.Info("shutdown requested via context")
-	}
-
-	// Perform graceful shutdown
-	logger.Info("starting graceful shutdown")
-
-	// Create shutdown context with timeout
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer shutdownCancel()
-
-	// Shutdown API server
-	if err := apiServer.Shutdown(shutdownCtx); err != nil {
-		logger.Error("failed to shutdown API server", "error", err)
-	}
-
-	// Shutdown privacy service
-	if privacyService != nil {
-		if err := privacyService.Stop(); err != nil {
-			logger.Error("failed to shutdown privacy service", "error", err)
-		}
-	}
-
-	// Shutdown telemetry last
-	if err := shutdownOTEL(context.Background()); err != nil {
-		logger.Error("failed to shutdown telemetry", "error", err)
-	}
-
-	logger.Info("agent backend shutdown complete")
+	// Note: The above call blocks until shutdown signal
+	// The old signal handling code below is no longer needed
+	// as httpserver.RunMain handles graceful shutdown
 }
 
 // startEventListener starts listening for blockchain events

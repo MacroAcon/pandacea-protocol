@@ -23,7 +23,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -197,6 +196,11 @@ func NewServer(policyEngine *policy.Engine, logger *slog.Logger, p2pNode *p2p.No
 	return server
 }
 
+// GetRouter returns the router for external integration
+func (server *Server) GetRouter() *chi.Mux {
+	return server.router
+}
+
 // loadProducts loads products from the products.json file
 func (server *Server) loadProducts() {
 	// Try multiple paths for products.json
@@ -264,13 +268,8 @@ func (server *Server) setupRoutes() {
 	server.router.Post("/train", server.handleTrainLegacy)
 	server.router.Get("/aggregate/{jobId}", server.handleAggregateLegacy)
 
-	// Health and readiness (no signature required)
-	server.router.Get("/health", server.handleHealth)   // legacy
-	server.router.Get("/healthz", server.handleHealthz) // k8s-style liveness
-	server.router.Get("/readyz", server.handleReadyz)
-
-	// Metrics endpoint
-	server.router.Handle("/metrics", promhttp.Handler())
+	// Note: Health endpoints (/healthz, /readyz, /metrics) are now added via httpserver integration
+	// to avoid duplication and ensure consistent implementation
 }
 
 // addVersionHeader adds the API version header to all responses
