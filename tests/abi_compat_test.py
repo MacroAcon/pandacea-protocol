@@ -3,8 +3,8 @@ import pathlib
 
 REQUIRED = {
     "LeaseAgreement.json": {"createLease", "getLease"},
-    "Reputation.json": {"scoreOf"},
-    "PGT.json": {"transfer", "balanceOf"},
+    "Reputation.json": {"initializeReputation", "setReputationDecayRate"},
+    "PGT.json": {"mint", "burn", "burnFrom"},
 }
 
 def test_abi_has_required_functions():
