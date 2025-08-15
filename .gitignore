@@ -145,3 +145,26 @@ lib/
 # ===================================================================
 # Anvil data cache
 anvil-data/
+
+# Additional OS files
+desktop.ini
+
+# Additional Python caches
+.mypy_cache/
+.ruff_cache/
+
+# Additional build artifacts
+*.log
+*.tmp
+*.bak
+*.old
+*.orig
+~$*
+
+# Additional coverage
+coverage/
+
+# Additional editor files
+*.swp
+*.swo
+*~
